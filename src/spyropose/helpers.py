@@ -1,3 +1,4 @@
+from collections import defaultdict
 from functools import partial
 
 import trimesh
@@ -6,15 +7,19 @@ from .data import symsol, symsol_objects, symsol_ours
 from .data.bop.config import config
 from .data.bop.dataset import get_bop_dataset
 
-datasets = {}
-datasets["symsol"] = symsol.SymsolDataset
-datasets["symsol_ours"] = symsol_ours.SymsolDataset
-for name in "tless", "hb":
-    datasets[name] = partial(get_bop_dataset, dataset_name=name)
+
+def get_dataset(name, **kwargs):
+    if name == "symsol":
+        return symsol.SymsolDataset
+    elif name == "symsol_ours":
+        return symsol_ours.SymsolDataset
+    else:
+        # assume bop dataset
+        return partial(get_bop_dataset, dataset_name=name, **kwargs)
 
 
 def dataset_from_model(model, **kwargs):
-    return datasets[model.dataset_name](
+    return get_dataset(model.dataset_name)(
         name=model.obj_name,
         crop_res=model.crop_res,
         recursion_depth=model.recursion_depth,

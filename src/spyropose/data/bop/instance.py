@@ -23,6 +23,7 @@ class BopInstanceDataset(torch.utils.data.Dataset):
         scene_ids=None,
         min_visib_fract=0.1,
         min_px_count_visib=1024,
+        offset_pbr_half_px=False,
     ):
         self.pbr, self.test, self.cfg = pbr, test, cfg
         if pbr:
@@ -60,7 +61,7 @@ class BopInstanceDataset(torch.utils.data.Dataset):
             for img_id, poses in scene_gt.items():
                 img_info = scene_gt_info[img_id]
                 K = np.array(scene_camera[img_id]["cam_K"]).reshape((3, 3)).copy()
-                if pbr:
+                if pbr and offset_pbr_half_px:
                     warnings.warn(
                         "Altering camera matrix,"
                         " since PBR camera matrix doesnt seem to be correct"

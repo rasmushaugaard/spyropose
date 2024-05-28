@@ -6,11 +6,11 @@ import torch
 import trimesh
 from tqdm import tqdm
 
-from . import helpers, se3_grid, translation_grid, utils, vis
-from .data.bop.dataset import get_bop_dataset
-from .data.config import config
-from .data.renderer import SimpleRenderer
-from .model_sample import ImplicitSampleModel
+from .. import helpers, se3_grid, translation_grid, utils, vis
+from ..data.bop.config import config
+from ..data.bop.dataset import get_bop_dataset
+from ..data.renderer import SimpleRenderer
+from ..model import SpyroPoseModel
 
 parser = argparse.ArgumentParser()
 parser.add_argument("model_path")
@@ -33,48 +33,38 @@ parser.add_argument("--box", type=int, nargs=4)
 parser.add_argument("--long-offset", type=float, default=0.0)
 parser.add_argument("--lat-offset", type=float, default=0.0)
 parser.add_argument("--regular-grid", action="store_true")
-parser.add_argument("--temperature", type=float, default=1.0)
-parser.add_argument("--gamma", type=float, default=0.5)
+parser.add_argument("--scene-rng-train", type=int, nargs=2, default=(0, 49))
+parser.add_argument("--scene-rng-valid", type=int, nargs=2, default=(49, 50))
+parser.add_argument("--gamma", type=float, default=1.0)
+parser.add_argument("--show-x", action='store_true')
 args = parser.parse_args()
 device = args.device
 
-model = ImplicitSampleModel.load_from_checkpoint(args.model_path)
+model = SpyroPoseModel.load_from_checkpoint(args.model_path)
 model.freeze()
 model.eval()
 model.to(device)
 
 dataset_name = model.dataset_name
 obj_name = model.obj_name
-
-
-dataset = helpers.datasets[dataset_name](
+dataset = helpers.get_dataset(dataset_name)(
     name=model.obj_name,
     recursion_depth=model.recursion_depth,
     regular_grid=args.regular_grid,
     split=args.split,
+    scene_ids_train=list(range(*args.scene_rng_train)),
+    scene_ids_valid=list(range(*args.scene_rng_valid)),
     random_offset_rotation=False,
 )
-if False:
-    dataset = get_bop_dataset(
-        dataset_name=dataset_name,
-        obj_id=obj_id,
-        crop_res=224,
-        scene_ids_train=[args.scene_id],
-        scene_ids_valid=[args.scene_id],
-        return_test=True,
-        allocentric=model.vector_neurons,
-        regular_grid=args.regular_grid,
-        recursion_depth=model.recursion_depth,
-    )[["train", "valid", "test"].index(args.split)]
 cfg = config[dataset_name]
 mesh = trimesh.load_mesh(
-    f"bop/{dataset_name}/{cfg.model_folder}/obj_{int(obj_name):06d}.ply"
+    f"data/bop/{dataset_name}/{cfg.model_folder}/obj_{int(obj_name):06d}.ply"
 )
 mesh.apply_translation(-mesh.bounding_sphere.primitive.center)
 renderer = SimpleRenderer(mesh, near=10.0, far=10_000.0, w=224)
 
 r_grid = args.r if args.r_grid is None else args.r_grid
-grid_np = utils.generate_healpix_grid(recursion_level=r_grid)
+grid_np = getattr(model, f"grid_{r_grid}").cpu().numpy()
 
 np.random.seed(args.seed)
 
@@ -101,12 +91,10 @@ while True:
             out = model.forward_infer(
                 img=img_data["img"][None],
                 K=img_data["K"][None],
-                view_R_cam=img_data["view_R_cam"][None],
                 world_t_obj_est=img_data["t_est"],
                 pos_grid_frame=img_data["t_grid_frame"],
                 pose_bs=10_000,
                 top_k=args.topk,
-                temperature=args.temperature,
             )
             out["log_probs"][-1].view(-1)[-1].item()
     probs = out["log_probs"][args.r][0].exp()
@@ -125,18 +113,18 @@ while True:
         .cpu()
         .numpy()[0]
     )
-    # t_np = out['poss'][args.r][0, 0, ..., 0].cpu().numpy()
 
     grid_np_out = grid_np[idx.cpu().numpy()]
     with utils.timer("pyramid search"):
         match_idx, ll = se3_grid.locate_poses_in_pyramid(
-            q_rot_idx_rlast=img_data[f"rot_idx_target_{5}"],
+            q_rot_idx_rlast=img_data[f"rot_idx_target_{model.recursion_depth - 1}"],
             q_pos=img_data["t"].unsqueeze(1),
             t_est=t_est,
             pos_grid_frame=grid_frame,
             rot_idxs=out["rot_idxs"],
             pos_idxs=out["pos_idxs"],
             log_probs=out["log_probs"],
+            position_scale=1e-3,
         )
     print("ll:", ll.view(-1).cpu().numpy())
 
@@ -152,10 +140,6 @@ while True:
     ax0.axis("off")
 
     ax1 = fig.add_subplot(gs[0, :], projection="mollweide")
-    # print(grid.shape, probs.shape, rots_gt.shape)
-    # grid = grid[probs.topk(4096).indices]
-    # probs = torch.ones_like(probs)[:len(grid)]
-    # print(grid.shape, probs.shape)
 
     rot_vis = vis.visualize_so3_probabilities(
         grid_np_out,
@@ -177,30 +161,31 @@ while True:
     ax2.set_title("x")
     ax2.axis("off")
 
-    set_marker_rot = rot_vis["show_marker"](marker="X", s=400)
-    scatter_rot_idx = np.argwhere(rot_vis["rotation_mask"])[0]
+    if args.show_x:
+        set_marker_rot = rot_vis["show_marker"](marker="X", s=400)
+        scatter_rot_idx = np.argwhere(rot_vis["rotation_mask"])[0]
 
-    last_idx = None
+        last_idx = None
 
-    def cb(event):
-        global last_idx
-        if event.inaxes is not ax1:
-            return
-        x, y = event.xdata, event.ydata
-        if x is None or y is None:
-            return
-        idx = rot_vis["scatter_tree"].query((x, y))[1]
-        idx = scatter_rot_idx[idx]
-        if idx == last_idx:
-            return
-        R = grid_np_out[idx]
-        t = t_np[idx]
-        set_marker_rot(R)
+        def cb(event):
+            global last_idx
+            if event.inaxes is not ax1:
+                return
+            x, y = event.xdata, event.ydata
+            if x is None or y is None:
+                return
+            idx = rot_vis["scatter_tree"].query((x, y))[1]
+            idx = scatter_rot_idx[idx]
+            if idx == last_idx:
+                return
+            R = grid_np_out[idx]
+            t = t_np[idx]
+            set_marker_rot(R)
 
-        img2.set_data(overlay(img_gray, renderer.render(K=K, R=R, t=t) * blue_tint))
-        fig.canvas.draw()
+            img2.set_data(overlay(img_gray, renderer.render(K=K, R=R, t=t) * blue_tint))
+            fig.canvas.draw()
 
-    fig.canvas.mpl_connect("motion_notify_event", cb)
+        fig.canvas.mpl_connect("motion_notify_event", cb)
 
     # images
     blue_tint = (0.3, 0.6, 1.0, 1.0)
@@ -288,40 +273,5 @@ while True:
     )  # green tint
     ax4.set_title("closest bin to gt")
     ax4.axis("off")
-
-    if args.debug:
-        if False:
-            for i in range(6):
-                f = plt.figure()
-                ax = f.add_subplot(projection="3d")
-                ax.set_box_aspect((1, 1, 1))
-                pts = getattr(model, f"pts_pos_{i}").cpu().numpy()  # (3, N)
-                ax.scatter(*pts)
-                ax.set_title(str(i))
-                pc = trimesh.PointCloud(pts.T)
-                pc.export(f"{i}.ply")
-
-        plt.figure()
-        alphas = (probs_sparse / probs_sparse.max()) ** 0.5
-        if False:
-            plt.scatter(*t_sparse[:, (0, 2), 0].T, alpha=alphas, edgecolors="none")
-            t = img_data["t"][0].cpu()
-            plt.scatter(t[0], t[2])
-            plt.plot([0, t[0]], [0, t[2]])
-            # plt.scatter([0], [0], alpha=0)
-            plt.gca().set_aspect(1)
-        else:
-            plt.imshow(img_gray, cmap="gray")
-            plt.axis("off")
-            t = t_np[..., 0].T
-            t = K @ (t / t[2:])
-            t = t[:2] / t[2:]
-            plt.scatter(
-                *t,
-                c=rot_vis["colors"],
-                alpha=rot_vis["alpha"],
-                edgecolors="none",
-                s=2,
-            )
 
     plt.show()

@@ -38,7 +38,7 @@ for ax in axs.reshape(-1):
         p = p[:2] / p[2:]
         u, v = np.round(p).astype(int).clip(0, 223)
         im[v, u] = (1 - args.pts_alpha) * im[v, u] + args.pts_alpha * np.eye(3)[0]
-    view_R_obj = d["view_R_cam"] @ d["R"]
+    view_R_obj = d["R"]
 
     c = K @ d["t"]
     c = c[:2, 0] / c[2, 0]

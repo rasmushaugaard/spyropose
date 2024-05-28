@@ -31,6 +31,8 @@ if __name__ == "__main__":
     parser.add_argument("--point-dropout", type=float, default=0.1)
     parser.add_argument("--recursion-depth", type=int, default=7)
     parser.add_argument("--number-fourier-components", type=int, default=3)
+    parser.add_argument("--scene-rng-train", type=int, nargs=2, default=(0, 49))
+    parser.add_argument("--scene-rng-valid", type=int, nargs=2, default=(49, 50))
     # data parameters
     parser.add_argument("--crop-res", type=int, default=224)
     parser.add_argument(
@@ -101,8 +103,8 @@ if __name__ == "__main__":
             cj_saturation=args.cj_saturation,
             cj_hue=args.cj_hue,
             cj_p=args.cj_p,
-            scene_ids_train=[0] if args.debug else list(range(0, 48)),
-            scene_ids_valid=[48] if args.debug else list(range(48, 50)),
+            scene_ids_train=list(range(*args.scene_rng_train)),
+            scene_ids_valid=list(range(*args.scene_rng_valid)),
         )
         data_train, data_valid, data_test = [
             get_bop_dataset(**data_kwargs, split=split)

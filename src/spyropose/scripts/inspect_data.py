@@ -16,7 +16,7 @@ parser.add_argument("--same-inst", action="store_true")
 args = parser.parse_args()
 np.random.seed(args.seed)
 
-dataset = helpers.datasets[args.dataset](
+dataset = helpers.get_dataset(args.dataset)(
     name=args.name, split=args.split, recursion_depth=6
 )
 mesh = helpers.load_mesh(args.dataset, args.name)

@@ -1,10 +1,13 @@
+from dataclasses import dataclass
 from typing import Set
 
+import albumentations as A
 import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation
 
 from ... import rotation_grid, translation_grid, utils
+from . import tfms
 from .instance import BopInstanceAux, BopInstanceDataset
 
 
@@ -218,3 +221,79 @@ class KeyFilterAux(BopInstanceAux):
 class Identity(BopInstanceAux):
     def __call__(self, inst: dict, _) -> dict:
         return inst
+
+
+@dataclass
+class ImgAugConfig:
+    enabled = True
+    cj_p = 1.0
+    cj_hue = 0.1
+    cj_brightness = 0.5
+    cj_contrast = 0.5
+    cj_saturation = 0.5
+
+
+def get_auxs(
+    crop_res: int,
+    recursion_depth: int,
+    img_aug_cfg: ImgAugConfig,
+):
+    random_crop_aux = RandomRotatedMaskCrop(
+        crop_res=crop_res,
+        random_rotation=img_aug_cfg.enabled,
+    )
+
+    auxs = [
+        RgbLoader(),
+        random_crop_aux.definition_aux,
+    ]
+
+    if img_aug_cfg.enabled:
+        auxs.append(
+            TransformsAux(
+                key="rgb",
+                crop_key="AABB_crop",
+                tfms=A.Compose(
+                    [
+                        A.GaussianBlur(blur_limit=(1, 3)),
+                        A.ISONoise(),
+                        A.GaussNoise(),
+                        tfms.DebayerArtefacts(),
+                        tfms.Unsharpen(),
+                        A.CLAHE(),
+                        A.GaussianBlur(blur_limit=(1, 3)),
+                    ]
+                ),
+            )
+        )
+
+    auxs.append(random_crop_aux.apply_aux)
+
+    if img_aug_cfg.enabled:
+        auxs.append(
+            TransformsAux(
+                key="rgb_crop",
+                tfms=A.Compose(
+                    [
+                        A.CoarseDropout(
+                            max_height=16, max_width=16, min_width=8, min_height=8
+                        ),
+                        A.ColorJitter(
+                            p=img_aug_cfg.cj_p,
+                            hue=img_aug_cfg.cj_hue,
+                            brightness=img_aug_cfg.cj_brightness,
+                            contrast=img_aug_cfg.cj_contrast,
+                            saturation=img_aug_cfg.cj_saturation,
+                        ),
+                    ]
+                ),
+            )
+        )
+
+    auxs.append(
+        NormalizeAux(
+            recursion_depth=recursion_depth,
+            random_offset_rotation=img_aug_cfg.enabled,
+        )
+    )
+    return auxs

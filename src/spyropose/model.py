@@ -161,9 +161,8 @@ class SpyroPoseModel(pl.LightningModule):
 
         for r in range(self.recursion_depth):
             """
-            Currently, the full rotation grids are generarted on cpu and moved to the 
-            model's device. 
-            The rotations could be computed on demand to allow deeper pyramids.
+            Currently, the full rotation grids are generated on cpu and moved to the model's
+            device. The rotations could be computed on demand to allow deeper pyramids.
             """
             grid = rotation_grid.generate_rotation_grid(recursion_level=r)
             self.register_buffer(

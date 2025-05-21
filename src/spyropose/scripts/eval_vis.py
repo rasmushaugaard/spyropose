@@ -8,7 +8,6 @@ from tqdm import tqdm
 
 from .. import helpers, se3_grid, translation_grid, utils, vis
 from ..data.bop.config import config
-from ..data.bop.dataset import get_bop_dataset
 from ..data.renderer import SimpleRenderer
 from ..model import SpyroPoseModel
 
@@ -36,7 +35,7 @@ parser.add_argument("--regular-grid", action="store_true")
 parser.add_argument("--scene-rng-train", type=int, nargs=2, default=(0, 49))
 parser.add_argument("--scene-rng-valid", type=int, nargs=2, default=(49, 50))
 parser.add_argument("--gamma", type=float, default=1.0)
-parser.add_argument("--show-x", action='store_true')
+parser.add_argument("--show-x", action="store_true")
 args = parser.parse_args()
 device = args.device
 

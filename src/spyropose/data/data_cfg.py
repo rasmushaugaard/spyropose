@@ -24,7 +24,7 @@ class DatasetConfig:
     models_dir_name: str = "models"
     img_aug_cfg: ImgAugConfig = field(default_factory=lambda: ImgAugConfig())
     crop_res: int = 224
-    recursion_depth: int = 6  # more a model detail which the dataset depends on?
+    recursion_depth: int = 7  # more a model detail
     min_visib_fract: float = 0.2
     min_px_count_visib: int = 512
 

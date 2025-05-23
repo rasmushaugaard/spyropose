@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Set
 
 import albumentations as A
@@ -6,19 +5,24 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from ... import rotation_grid, translation_grid, utils
+from .. import rotation_grid, translation_grid, utils
 from . import tfms
-from .instance import BopInstanceAux, BopInstanceDataset
+from .data_cfg import DatasetConfig
+
+
+class BopInstanceAux:
+    def __call__(self, data: dict) -> dict: ...
 
 
 class RgbLoader(BopInstanceAux):
-    def __init__(self, copy=False):
+    def __init__(self, cfg: DatasetConfig, copy=False):
+        self.cfg = cfg
         self.copy = copy
 
-    def __call__(self, inst: dict, dataset: BopInstanceDataset) -> dict:
+    def __call__(self, inst: dict) -> dict:
         scene_id, img_id = inst["scene_id"], inst["img_id"]
-        fname = f"{img_id:06d}.{dataset.img_ext}"
-        fp = dataset.data_folder / f"{scene_id:06d}" / dataset.img_folder / fname
+        fname = f"{img_id:06d}.{self.cfg.img_ext}"
+        fp = self.cfg.sub_dir / f"{scene_id:06d}" / "rgb" / fname
         rgb = cv2.imread(str(fp), cv2.IMREAD_COLOR)[..., ::-1]
         assert rgb is not None
         inst["rgb"] = rgb.copy() if self.copy else rgb
@@ -54,9 +58,9 @@ class RandomRotatedMaskCrop(BopInstanceAux):
         self.apply_aux = RandomRotatedMaskCropApply(self)
         self.random_rotation = random_rotation
 
-    def __call__(self, inst: dict, _) -> dict:
-        inst = self.definition_aux(inst, _)
-        inst = self.apply_aux(inst, _)
+    def __call__(self, inst: dict) -> dict:
+        inst = self.definition_aux(inst)
+        inst = self.apply_aux(inst)
         return inst
 
 
@@ -117,7 +121,7 @@ class RandomRotatedMaskCropDefinition(BopInstanceAux):
     def __init__(self, parent: RandomRotatedMaskCrop):
         self.p = parent
 
-    def __call__(self, inst: dict, _) -> dict:
+    def __call__(self, inst: dict) -> dict:
         # get grid frame based on true position
         t_ctr = inst["cam_t_ctr"]
         obj_radius = inst["obj_radius"]
@@ -129,7 +133,7 @@ class RandomRotatedMaskCropDefinition(BopInstanceAux):
             regular=self.p.grid_regular,
         )  # (3, 3)
         # sample offset within the rotation-independent grid region
-        # this offset serves to simulate a 2D detector with a depth estimate
+        # this offset serves to simulate errors of a 2D detector with a depth estimate
         t_offset = utils.sample_truncated_normal(
             n=1, std=self.p.translation_std, trunc=0.5
         )[0, :, None]
@@ -157,7 +161,7 @@ class RandomRotatedMaskCropApply(BopInstanceAux):
     def __init__(self, parent: RandomRotatedMaskCrop):
         self.p = parent
 
-    def __call__(self, inst: dict, _) -> dict:
+    def __call__(self, inst: dict) -> dict:
         inst["rgb_crop"] = cv2.warpPerspective(
             inst["rgb"],
             inst["M_crop"],
@@ -173,7 +177,7 @@ class TransformsAux(BopInstanceAux):
         self.tfms = tfms
         self.crop_key = crop_key
 
-    def __call__(self, inst: dict, _) -> dict:
+    def __call__(self, inst: dict) -> dict:
         if self.crop_key is not None:
             left, top, right, bottom = inst[self.crop_key]
             img_slice = slice(top, bottom), slice(left, right)
@@ -189,7 +193,7 @@ class NormalizeAux(BopInstanceAux):
         self.random_offset_rotation = random_offset_rotation
         self.rlast = recursion_depth - 1
 
-    def __call__(self, inst: dict, _) -> dict:
+    def __call__(self, inst: dict) -> dict:
         inst = dict(
             img=(inst["rgb_crop"].astype(np.float32) / 255.0).transpose((2, 0, 1)),
             K=inst["K_crop"].astype(np.float32),
@@ -214,37 +218,19 @@ class KeyFilterAux(BopInstanceAux):
     def __init__(self, keys=Set[str]):
         self.keys = keys
 
-    def __call__(self, inst: dict, _) -> dict:
+    def __call__(self, inst: dict) -> dict:
         return {k: v for k, v in inst.items() if k in self.keys}
 
 
-class Identity(BopInstanceAux):
-    def __call__(self, inst: dict, _) -> dict:
-        return inst
-
-
-@dataclass
-class ImgAugConfig:
-    enabled = True
-    cj_p = 1.0
-    cj_hue = 0.1
-    cj_brightness = 0.5
-    cj_contrast = 0.5
-    cj_saturation = 0.5
-
-
-def get_auxs(
-    crop_res: int,
-    recursion_depth: int,
-    img_aug_cfg: ImgAugConfig,
-):
+def get_auxs(cfg: DatasetConfig):
+    img_aug_cfg = cfg.img_aug_cfg
     random_crop_aux = RandomRotatedMaskCrop(
-        crop_res=crop_res,
+        crop_res=cfg.crop_res,
         random_rotation=img_aug_cfg.enabled,
     )
 
-    auxs = [
-        RgbLoader(),
+    auxs: list[BopInstanceAux] = [
+        RgbLoader(cfg=cfg),
         random_crop_aux.definition_aux,
     ]
 
@@ -292,7 +278,7 @@ def get_auxs(
 
     auxs.append(
         NormalizeAux(
-            recursion_depth=recursion_depth,
+            recursion_depth=cfg.recursion_depth,
             random_offset_rotation=img_aug_cfg.enabled,
         )
     )

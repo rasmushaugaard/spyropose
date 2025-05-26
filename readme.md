@@ -55,3 +55,9 @@ Check out initial commit.
   year={2023}
 }
 ```
+
+## TODO
+
+- save all relevant hyperparameters to make inference easier with the model
+  - model name, frame offset, etc.
+- reintroduce validation set

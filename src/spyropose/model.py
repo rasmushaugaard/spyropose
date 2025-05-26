@@ -7,6 +7,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import trimesh
 
 from . import rotation_grid, se3_grid, translation_grid, unet, utils
 
@@ -15,10 +16,10 @@ Tensor = torch.Tensor
 
 @dataclass
 class SpyroPoseModelConfig:
-    dataset_name: str
-    obj_name: str
-    obj_radius: float
-    keypoints: np.ndarray
+    dataset_name: str = None
+    obj_name: str = None
+    obj_radius: float = None
+    n_keypoints: int = 16
     lr: float = 1e-4
     weight_decay: float = 0.0
     embed_dim: int = 64
@@ -28,33 +29,33 @@ class SpyroPoseModelConfig:
     crop_res: int = 224
     recursion_depth: int = 7
     n_samples: int = 32
-    dropout: float = 0.0
-    point_dropout: float = 0.0
+    dropout: float = 0.1
+    point_dropout: float = 0.1
     val_top_k: int = 512
     position_scale: float = None
-    debug: bool = False
 
-    @property
-    def n_keypoints(self):
-        n, d = self.keypoints.shape
-        assert d == 3
-        return n
+    def keypoints_from_mesh(self, mesh: trimesh.Trimesh):
+        pts = utils.farthest_point_sampling(mesh.vertices, self.n_keypoints)
+        pts = pts - mesh.bounding_sphere.primitive.center
+        return pts.T  # (3, n_pts)
 
 
 class SpyroPoseModel(pl.LightningModule):
-    def __init__(self, cfg: SpyroPoseModelConfig):
+    def __init__(self, cfg: SpyroPoseModelConfig, keypoints: np.ndarray = None):
         super().__init__()
         self.cfg = cfg
-        self.save_hyperparameters()  # TODO: check how this looks
+        # stores hyperparams for future instantiation
+        self.save_hyperparameters(logger=False)
+        # store keypoints with parameters (but with requires_grad=False)
+        self.register_buffer("keypoints", torch.from_numpy(keypoints).float())
+
         self.point_dropout = nn.Dropout2d(cfg.point_dropout)
 
-        # could experiment with more recent backbones
-        assert cfg.vis_model == "unet18"
+        assert cfg.vis_model == "unet18"  # could experiment with more recent backbones
         self.vis_model = unet.ResNetUNet(feat_preultimate=128, n_class=128)
         vis_channels = 128
 
         self.n_pts = cfg.n_keypoints
-        self.register_buffer("keypoints", torch.from_numpy(cfg.keypoints).float())
         self.out_of_img_embedding = nn.Parameter(torch.randn(cfg.embed_dim))
 
         for r in range(cfg.recursion_depth):
@@ -90,7 +91,7 @@ class SpyroPoseModel(pl.LightningModule):
 
     def configure_optimizers(self):
         opt = torch.optim.AdamW(
-            self.parameters(), lr=self.lr, weight_decay=self.weight_decay
+            self.parameters(), lr=self.cfg.lr, weight_decay=self.cfg.weight_decay
         )
 
         def lr(step, warmup_steps=1000):
@@ -406,7 +407,7 @@ class SpyroPoseModel(pl.LightningModule):
             if r == 0:
                 # sample across all
                 log_q, sample_idx = utils.sample_from_lgts(
-                    lgts=lgts_q, n=self.n_samples
+                    lgts=lgts_q, n=self.cfg.n_samples
                 )
                 rot_idx = rot_idx[:, 1:].gather(1, sample_idx)
                 pos_idx = pos_idx[:, 1:][
@@ -414,7 +415,7 @@ class SpyroPoseModel(pl.LightningModule):
                 ]  # (b, s, 3)
             else:
                 # sample one per expanded element
-                assert s == self.n_samples
+                assert s == self.cfg.n_samples
                 log_q_, sample_idx = utils.sample_from_lgts(
                     lgts=lgts_q.view(b, s, bf), n=1
                 )
@@ -447,8 +448,8 @@ class SpyroPoseModel(pl.LightningModule):
             img=batch["img"],
             K=batch["K"],
             t_est=batch["t_est"],
-            t_grid_frame=batch["t_grid_frame"] if self.train_se3 else None,
-            t_target=batch["t"] if self.train_se3 else None,
+            t_grid_frame=batch["t_grid_frame"],
+            t_target=batch["t"],
             # only provide the same modality / symmetry during training
             # assuming no knowledge about symmetries during training:
             rot_idx_target_rlast=batch[

@@ -39,7 +39,7 @@ def main(cfg: DatasetConfig, pts_alpha=0.7, draw_frame=True, same_inst=False, se
             K_ = K_ * sign.reshape(1, 3)
             R_ = R_ * sign.reshape(3, 1)
             assert np.allclose(K_ @ R_, K), np.linalg.norm(K_ @ R_ - K)
-            im = im[..., ::-1].copy()  # rgb to bgr
+            im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
             cv2.drawFrameAxes(
                 image=im,
                 cameraMatrix=K_,
@@ -48,7 +48,7 @@ def main(cfg: DatasetConfig, pts_alpha=0.7, draw_frame=True, same_inst=False, se
                 length=dataset.obj_radius,
                 distCoeffs=None,
             )
-            im = im[..., ::-1]  # bgr to rgb
+            im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
 
         ax.imshow(im.clip(0, 1))
         ax.axis("off")

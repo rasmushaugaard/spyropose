@@ -23,9 +23,9 @@ class RgbLoader(BopInstanceAux):
         scene_id, img_id = inst["scene_id"], inst["img_id"]
         fname = f"{img_id:06d}.{self.cfg.img_ext}"
         fp = self.cfg.sub_dir / f"{scene_id:06d}" / "rgb" / fname
-        rgb = cv2.imread(str(fp), cv2.IMREAD_COLOR)[..., ::-1]
-        assert rgb is not None
-        inst["rgb"] = rgb.copy() if self.copy else rgb
+        bgr = cv2.imread(str(fp), cv2.IMREAD_COLOR)
+        assert bgr is not None
+        inst["rgb"] = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         return inst
 
 
@@ -262,7 +262,8 @@ def get_auxs(cfg: DatasetConfig):
                 tfms=A.Compose(
                     [
                         A.CoarseDropout(
-                            max_height=16, max_width=16, min_width=8, min_height=8
+                            hole_height_range=(8, 16),
+                            hole_width_range=(8, 16),
                         ),
                         A.ColorJitter(
                             p=img_aug_cfg.cj_p,

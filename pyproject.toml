@@ -17,6 +17,7 @@ dependencies = [
     "einops >= 0.8.0",
     "jsonargparse>=4.40.0",
     "pyqt6>=6.9.0",
+    "wandb>=0.19.11",
 ]
 
 [build-system]

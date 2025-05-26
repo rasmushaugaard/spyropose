@@ -12,38 +12,42 @@ from ..model import SpyroPoseModel, SpyroPoseModelConfig
 
 def cli_train():
     """
-    Some things don't belong
-    - its weird to pass dataset name and model name to the model as well
-    - data config should not have recursion depth
-
     It could be more clear that the frame of the object is changed!
     Maybe make it a parameter where the est. frame is and save the offset as part of the model.
 
     Frame and keypoints are automatically determined based on the mesh.
-    We don't want to add that responsibility to the spyroposemodel, so we move the instantiation out of the class. This makes even more sense, since the data also depends on the choice (and size) of frame, but not on keypoints.
+    We don't want to add that responsibility to the spyroposemodel, so we move that out of the class. This makes even more sense, since the data also depends on that.
+    However, the frame offset should be saved with the model!
 
-    Data -> crop_res, recursion_depth, radius, frame offset
-    Model -> crop_res, recursion_depth, radius, keypoints (frame offset for inference, and dataset/model name for sanity)
+    The same frame offset should be used when training a detector / point estimator.
 
+    FrameConfig (radius, center offset, padding ratio)
+    FrameConfig -> Mesh
+    keypoints -> Mesh, FrameConfig
+    PoseModel -> FrameConfig, keypoints
+    DetectionModel -> FrameConfig
+    Data -> FrameConfig
     """
 
     parser = ArgumentParser()
     parser.add_class_arguments(DatasetConfig, "data")
     parser.add_class_arguments(SpyroPoseModelConfig, "model")
-    parser.link_arguments("model.recursion_depth", "data.recursion_depth")
-    parser.link_arguments("model.crop_res", "data.crop_res")
-    parser.link_arguments("data.obj", "model.obj_name")
-    parser.link_arguments("data.root_dir", "model.dataset_name", lambda p: p.name)
     parser.add_class_arguments(
         pl.Trainer,
         "trainer",
         default=dict(max_steps=50_000, accelerator="gpu", devices="auto"),
         skip={"logger", "callbacks"},
     )
+
     parser.add_argument("--num_workers", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--wandb_project", type=str, default="spyropose")
     parser.add_argument("--debug", action="store_true")
+
+    parser.link_arguments("model.recursion_depth", "data.recursion_depth")
+    parser.link_arguments("model.crop_res", "data.crop_res")
+    parser.link_arguments("data.obj", "model.obj_name")
+    parser.link_arguments("data.root_dir", "model.dataset_name", lambda p: p.name)
     parser.link_arguments(
         "debug", "trainer.enable_checkpointing", lambda debug: not debug
     )

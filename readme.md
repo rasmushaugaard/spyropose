@@ -58,6 +58,17 @@ Check out initial commit.
 
 ## TODO
 
+- refactor FrameConfig (offset + radius)
+  - Model & Data -> FrameConfig
 - save all relevant hyperparameters to make inference easier with the model
-  - model name, frame offset, etc.
+  - model name, frame config, etc.
 - reintroduce validation set
+- make sure inference scripts is running
+- note about detection format / assumptions
+
+## Frame argument problem
+
+- I want to be able to init it during training by default with bounding sphere
+  - this is then passed to both data and model
+- It should also be saved along with the model to avoid having to store something multiple places (strong coupling between model and frame indeed)
+- The frame would also be necessary when training a detector.

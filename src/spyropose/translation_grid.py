@@ -69,16 +69,16 @@ class TranslationGridDefinition:
 
 
 def get_translation_grid_frame(
-    obj_radius: float, t_est: np.ndarray, random_rotation=True, regular=False
+    frame_radius: float, t_frame_est: np.ndarray, random_rotation=True, regular=False
 ):
     """
     Initialises a grid around an approximate object position.
     When the number of recursions go to infinity, the rotation-independent coverage
     becomes the sphere with diameter one in the grid space.
     """
-    plane_grid_spacing = obj_radius * 2
-    assert t_est.shape == (3, 1)
-    x_est, y_est, z_est = t_est[:, 0]
+    plane_grid_spacing = frame_radius * 2
+    assert t_frame_est.shape == (3, 1)
+    x_est, y_est, z_est = t_frame_est[:, 0]
 
     if random_rotation:
         grid_frame = Rotation.random().as_matrix()
@@ -88,7 +88,7 @@ def get_translation_grid_frame(
     grid_frame *= plane_grid_spacing
     if not regular:
         # depth scale
-        grid_frame[2] *= z_est / (obj_radius * 2)
+        grid_frame[2] *= z_est / (frame_radius * 2)
         # shear
         grid_frame[0] += grid_frame[2] * x_est / z_est
         grid_frame[1] += grid_frame[2] * y_est / z_est
@@ -191,7 +191,10 @@ def _main():
     idxs = 0, 2
     grid_frame = torch.from_numpy(
         get_translation_grid_frame(
-            obj_radius=0.5, t_est=t_est.numpy(), random_rotation=False, regular=False
+            frame_radius=0.5,
+            t_frame_est=t_est.numpy(),
+            random_rotation=False,
+            regular=False,
         )
     )
     plt.scatter(*t_est[idxs,], zorder=10, c="k", marker="x")

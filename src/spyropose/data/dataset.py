@@ -2,7 +2,6 @@ import json
 
 import numpy as np
 import torch.utils.data
-import trimesh
 from tqdm import tqdm
 
 from .auxs import get_auxs
@@ -11,16 +10,9 @@ from .data_cfg import DatasetConfig
 
 class BopInstanceDataset(torch.utils.data.Dataset):
     def __init__(self, cfg: DatasetConfig):
-        self.cfg = cfg
-
-        self.mesh: trimesh.Trimesh = trimesh.load_mesh(cfg.model_path)
-        self.obj_radius: float = self.mesh.bounding_sphere.primitive.radius
-        self.obj_center: np.ndarray = (
-            self.mesh.bounding_sphere.primitive.center.reshape(3, 1)
-        )
-
         self.auxs = get_auxs(cfg)
         self.instances: list[dict] = []
+        obj_t_frame = np.asarray(cfg.frame.obj_t_frame).reshape(3, 1)
 
         for scene_id in tqdm(cfg.scene_ids, "loading crop info"):
             scene_folder = cfg.sub_dir / f"{scene_id:06d}"
@@ -45,7 +37,7 @@ class BopInstanceDataset(torch.utils.data.Dataset):
 
                     cam_R_obj = np.array(pose["cam_R_m2c"]).reshape(3, 3)
                     cam_t_obj = np.array(pose["cam_t_m2c"]).reshape(3, 1)
-                    cam_t_ctr = cam_R_obj @ self.obj_center + cam_t_obj
+                    cam_t_frame = cam_t_obj + cam_R_obj @ obj_t_frame
 
                     self.instances.append(
                         dict(
@@ -58,8 +50,8 @@ class BopInstanceDataset(torch.utils.data.Dataset):
                             bbox_obj=bbox_obj,
                             cam_R_obj=cam_R_obj,
                             cam_t_obj=cam_t_obj,
-                            cam_t_ctr=cam_t_ctr,
-                            obj_radius=self.obj_radius,
+                            cam_t_frame=cam_t_frame,
+                            frame_radius=cfg.frame.radius,
                         )
                     )
 

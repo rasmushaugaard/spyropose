@@ -1,13 +1,18 @@
 import pytorch_lightning as pl
 import pytorch_lightning.callbacks as cb
 import torch.utils.data
+import trimesh
 from jsonargparse import ArgumentParser
 from pytorch_lightning.loggers.wandb import WandbLogger
 
 from .. import utils
 from ..data.data_cfg import DatasetConfig, ImgAugConfig
-from ..data.dataset import BopInstanceDataset
+from ..frame import SpyroFrame
 from ..model import SpyroPoseModel, SpyroPoseModelConfig
+
+
+def get_frame():
+    return SpyroFrame()
 
 
 def cli_train():
@@ -30,8 +35,9 @@ def cli_train():
     """
 
     parser = ArgumentParser()
-    parser.add_class_arguments(DatasetConfig, "data")
-    parser.add_class_arguments(SpyroPoseModelConfig, "model")
+    parser.add_class_arguments(SpyroPoseModelConfig, "model", skip={"frame"})
+    parser.add_class_arguments(DatasetConfig, "data", skip={"frame"})
+    parser.add_argument("--frame", type=SpyroFrame | None)
     parser.add_class_arguments(
         pl.Trainer,
         "trainer",
@@ -44,27 +50,31 @@ def cli_train():
     parser.add_argument("--wandb_project", type=str, default="spyropose")
     parser.add_argument("--debug", action="store_true")
 
-    parser.link_arguments("model.recursion_depth", "data.recursion_depth")
-    parser.link_arguments("model.crop_res", "data.crop_res")
-    parser.link_arguments("data.obj", "model.obj_name")
-    parser.link_arguments("data.root_dir", "model.dataset_name", lambda p: p.name)
+    for name in "dataset", "obj", "recursion_depth", "crop_res":
+        parser.link_arguments(f"model.{name}", f"data.{name}")
     parser.link_arguments(
         "debug", "trainer.enable_checkpointing", lambda debug: not debug
     )
 
     args = parser.parse_args()
 
-    torch.set_float32_matmul_precision("medium")
-
     data_args = args.data.clone()
     data_args.img_aug_cfg = ImgAugConfig(**data_args.img_aug_cfg)
     data_cfg = DatasetConfig(**data_args)
-    data = BopInstanceDataset(data_cfg)
+    mesh = trimesh.load_mesh(data_cfg.mesh_path)
 
-    model_cfg = SpyroPoseModelConfig(**args.model)
-    model_cfg.instantiate_from_mesh(data.mesh)
+    if args.frame is not None:
+        frame = SpyroFrame(**args.frame)
+    else:
+        print("Frame not provided. Using frame based on from mesh bounding sphere.")
+        frame = SpyroFrame.from_mesh_bounding_sphere(mesh)
+    data_cfg.frame = frame
+
+    model_cfg = SpyroPoseModelConfig(**args.model, frame=frame)
+
+    model_cfg.init_keypoints_from_mesh(mesh)
     model = SpyroPoseModel(
-        model_cfg, keypoints=model_cfg.keypoints_from_mesh(data.mesh)
+        model_cfg, keypoints=model_cfg.init_keypoints_from_mesh(data.mesh)
     )
 
     loader_kwargs = dict(
@@ -84,6 +94,7 @@ def cli_train():
             cb.LearningRateMonitor(),
         ]
 
+    torch.set_float32_matmul_precision("high")
     trainer = pl.Trainer(
         **args.trainer,
         logger=logger,

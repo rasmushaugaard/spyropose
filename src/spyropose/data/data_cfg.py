@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 
+from ..frame import SpyroFrame
+
 
 @dataclass
 class ImgAugConfig:
@@ -16,12 +18,13 @@ class ImgAugConfig:
 
 @dataclass
 class DatasetConfig:
-    root_dir: Path
-    obj: int | str
+    dataset: str
+    obj: str
+    frame: SpyroFrame = None
     scene_id_range: tuple[int, int] = None
     sub_dir_name: str = "train_pbr"
     img_ext: str = "jpg"
-    models_dir_name: str = "models"
+    meshes_dir_name: str = "models"
     img_aug_cfg: ImgAugConfig = field(default_factory=lambda: ImgAugConfig())
     crop_res: int = 224
     recursion_depth: int = 7  # more a model detail
@@ -29,8 +32,12 @@ class DatasetConfig:
     min_px_count_visib: int = 512
 
     @property
-    def models_dir(self):
-        return self.root_dir / self.models_dir_name
+    def root_dir(self):
+        return Path("data/bop") / self.dataset
+
+    @property
+    def meshes_dir(self):
+        return self.root_dir / self.meshes_dir_name
 
     @property
     def sub_dir(self):
@@ -44,38 +51,38 @@ class DatasetConfig:
             return tuple(range(*self.scene_id_range))
 
     @cached_property
-    def model_info(self):
-        with (self.models_dir / "models_info.json").open() as f:
-            models_info: dict[str, dict[str]] = json.load(f)
+    def mesh_info(self):
+        with (self.meshes_dir / "models_info.json").open() as f:
+            meshes_info: dict[str, dict[str]] = json.load(f)
 
         try:
             # by index (bop format)
             obj_id = int(self.obj)
-            model_path = self.models_dir / f"obj_{obj_id:06d}.ply"
+            mesh_path = self.meshes_dir / f"obj_{obj_id:06d}.ply"
         except ValueError:
             # by name
-            model_path = self.models_dir / f"{self.obj}"
+            mesh_path = self.meshes_dir / f"{self.obj}"
             mesh_name2id = dict()
-            for idx_str, model_info in models_info.items():
-                if "mesh_name" in model_info:
-                    mesh_name2id[model_info.get("mesh_name")] = int(idx_str)
-            if model_path.name not in mesh_name2id:
+            for idx_str, mesh_info in meshes_info.items():
+                if "mesh_name" in mesh_info:
+                    mesh_name2id[mesh_info.get("mesh_name")] = int(idx_str)
+            if mesh_path.name not in mesh_name2id:
                 raise RuntimeError(
-                    f"Model name '{self.obj}' not found. "
+                    f"Object name '{self.obj}' not found. "
                     f"Available names: {list(mesh_name2id.keys())}"
                 )
-            obj_id = mesh_name2id[model_path.name]
+            obj_id = mesh_name2id[mesh_path.name]
 
-        assert model_path.exists(), f"{model_path}"
-        model_info = models_info[str(obj_id)]
-        model_info["path"] = model_path
-        model_info["id"] = obj_id
-        return model_info
+        assert mesh_path.exists(), f"{mesh_path}"
+        mesh_info = meshes_info[str(obj_id)]
+        mesh_info["path"] = mesh_path
+        mesh_info["id"] = obj_id
+        return mesh_info
 
     @property
-    def model_path(self) -> Path:
-        return self.model_info["path"]
+    def mesh_path(self) -> Path:
+        return self.mesh_info["path"]
 
     @property
     def obj_id(self) -> int:
-        return self.model_info["id"]
+        return self.mesh_info["id"]

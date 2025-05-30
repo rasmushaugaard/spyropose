@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import trimesh
 
 from . import rotation_grid, se3_grid, translation_grid, unet, utils
+from .frame import SpyroFrame
 
 Tensor = torch.Tensor
 
@@ -18,36 +19,42 @@ Tensor = torch.Tensor
 class SpyroPoseModelConfig:
     dataset_name: str = None
     obj_name: str = None
-    obj_radius: float = None
     n_keypoints: int = 16
-    lr: float = 1e-4
-    weight_decay: float = 0.0
+    keypoints: tuple[tuple[float, float, float], ...] = None  # in spyro frame
     embed_dim: int = 64
     n_layers: int = 3
     d_ff: int = 256
-    vis_model: str = "unet18"
+    val_top_k: int = 512
     crop_res: int = 224
+    vis_model: str = "unet18"
+    position_scale: float = None
+    frame: SpyroFrame = None
     recursion_depth: int = 7
+    # training
+    lr: float = 1e-4
+    weight_decay: float = 0.0
     n_samples: int = 32
     dropout: float = 0.1
     point_dropout: float = 0.1
-    val_top_k: int = 512
-    position_scale: float = None
 
-    def keypoints_from_mesh(self, mesh: trimesh.Trimesh):
-        pts = utils.farthest_point_sampling(mesh.vertices, self.n_keypoints)
-        pts = pts - mesh.bounding_sphere.primitive.center
-        return pts.T  # (3, n_pts)
+    def init_keypoints_from_mesh(self, mesh: trimesh.Trimesh, tol=1.001):
+        assert self.keypoints is None
+        # only choose keypoints in frame
+        frame_vertices = mesh.vertices - self.frame.obj_t_frame
+        mask = np.linalg.norm(frame_vertices, axis=1) < self.frame.radius * tol
+        frame_vertices = frame_vertices[mask]
+        frame_pts = utils.farthest_point_sampling(frame_vertices, self.n_keypoints)
+        self.keypoints = frame_pts.tolist()
 
 
 class SpyroPoseModel(pl.LightningModule):
-    def __init__(self, cfg: SpyroPoseModelConfig, keypoints: np.ndarray = None):
+    def __init__(self, cfg: SpyroPoseModelConfig):
         super().__init__()
         self.cfg = cfg
         # stores hyperparams for future instantiation
         self.save_hyperparameters(logger=False)
         # store keypoints with parameters (but with requires_grad=False)
-        self.register_buffer("keypoints", torch.from_numpy(keypoints).float())
+        self.register_buffer("keypoints", torch.tensor(cfg.keypoints, torch.float))
 
         self.point_dropout = nn.Dropout2d(cfg.point_dropout)
 

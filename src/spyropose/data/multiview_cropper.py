@@ -37,9 +37,9 @@ class MultiViewCropper:
             )["rgb"]
             h, w = img.shape[:2]
             cm = auxs.calculate_crop_matrix(
-                t_est=cam_t_obj_est,
+                t_frame_est=cam_t_obj_est,
                 crop_res=self.crop_res,
-                obj_radius=self.obj_radius,
+                frame_radius=self.obj_radius,
                 padding=1.5,
                 K=K,
                 random_rotation=False,

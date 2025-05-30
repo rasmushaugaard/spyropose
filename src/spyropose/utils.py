@@ -1,4 +1,5 @@
 import time
+from collections.abc import Sequence
 from contextlib import contextmanager
 
 import numpy as np
@@ -153,3 +154,9 @@ def to_alpha_img(img):
         axis=2,
     )  # (h, w, 4)
     return img
+
+
+def to_tuples(seq):
+    if isinstance(seq, Sequence):
+        return tuple((to_tuples(el) for el in seq))
+    return seq

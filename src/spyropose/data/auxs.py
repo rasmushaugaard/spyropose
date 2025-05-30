@@ -65,13 +65,13 @@ class RandomRotatedMaskCrop(BopInstanceAux):
 
 
 def calculate_crop_matrix(
-    t_est, crop_res, obj_radius, padding, K, random_rotation, h, w
+    t_frame_est, crop_res, frame_radius, padding, K, random_rotation, h, w
 ):
     # get the intrinsics of the crop around the estimated position
     #   scale: f * obj_diameter * pad_multiplier / z = res
-    f = crop_res / (obj_radius * 2 * padding) * t_est[2, 0]
+    f = crop_res / (frame_radius * 2 * padding) * t_frame_est[2, 0]
     #   center: fx/z + cx = res / 2 - 0.5
-    c = crop_res / 2 - 0.5 - f * t_est[:2, 0] / t_est[2, 0]
+    c = crop_res / 2 - 0.5 - f * t_frame_est[:2, 0] / t_frame_est[2, 0]
     K_des = np.array(
         (
             (f, 0, c[0]),
@@ -123,12 +123,12 @@ class RandomRotatedMaskCropDefinition(BopInstanceAux):
 
     def __call__(self, inst: dict) -> dict:
         # get grid frame based on true position
-        t_ctr = inst["cam_t_ctr"]
-        obj_radius = inst["obj_radius"]
+        t_frame = inst["cam_t_frame"]
+        frame_radius = inst["frame_radius"]
 
         t_grid_frame = translation_grid.get_translation_grid_frame(
-            obj_radius=obj_radius,
-            t_est=t_ctr,
+            frame_radius=frame_radius,
+            t_frame_est=t_frame,
             random_rotation=self.p.grid_random_rotate,
             regular=self.p.grid_regular,
         )  # (3, 3)
@@ -138,15 +138,15 @@ class RandomRotatedMaskCropDefinition(BopInstanceAux):
             n=1, std=self.p.translation_std, trunc=0.5
         )[0, :, None]
         t_offset = t_grid_frame @ t_offset
-        t_ctr_est = t_ctr + t_offset
-        inst["t_ctr_est"] = t_ctr_est
+        t_frame_est = t_frame + t_offset
+        inst["t_frame_est"] = t_frame_est
         inst["t_grid_frame"] = t_grid_frame
 
         h, w = inst["rgb"].shape[:2]
         for key, val in calculate_crop_matrix(
-            t_est=t_ctr_est,
+            t_frame_est=t_frame_est,
             crop_res=self.p.crop_res,
-            obj_radius=obj_radius,
+            frame_radius=frame_radius,
             padding=self.p.padding,
             K=inst["K"],
             random_rotation=self.p.random_rotation,
@@ -198,8 +198,8 @@ class NormalizeAux(BopInstanceAux):
             img=(inst["rgb_crop"].astype(np.float32) / 255.0).transpose((2, 0, 1)),
             K=inst["K_crop"].astype(np.float32),
             R=inst["cam_R_obj"].astype(np.float32),
-            t=inst["cam_t_ctr"].astype(np.float32),
-            t_est=inst["t_ctr_est"].astype(np.float32),
+            t=inst["cam_t_frame"].astype(np.float32),
+            t_est=inst["t_frame_est"].astype(np.float32),
             t_grid_frame=inst["t_grid_frame"].astype(np.float32),
         )
         if self.random_offset_rotation:

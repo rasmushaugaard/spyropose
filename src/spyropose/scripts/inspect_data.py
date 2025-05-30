@@ -9,7 +9,7 @@ from ..data.dataset import BopInstanceDataset, DatasetConfig
 
 def main(cfg: DatasetConfig, pts_alpha=0.7, draw_frame=True, same_inst=False, seed=0):
     dataset = BopInstanceDataset(cfg)
-    pts = dataset.mesh.vertices - dataset.obj_center.flatten()
+    pts = dataset.mesh.vertices - dataset.obj_t_frame.flatten()
 
     np.random.seed(seed)
 
@@ -45,7 +45,7 @@ def main(cfg: DatasetConfig, pts_alpha=0.7, draw_frame=True, same_inst=False, se
                 cameraMatrix=K_,
                 rvec=cv2.Rodrigues(R_ @ R)[0],
                 tvec=R_ @ t,
-                length=dataset.obj_radius,
+                length=dataset.frame_radius,
                 distCoeffs=None,
             )
             im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)

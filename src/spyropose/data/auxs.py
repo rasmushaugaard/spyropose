@@ -22,7 +22,7 @@ class RgbLoader(BopInstanceAux):
     def __call__(self, inst: dict) -> dict:
         scene_id, img_id = inst["scene_id"], inst["img_id"]
         fname = f"{img_id:06d}.{self.cfg.img_ext}"
-        fp = self.cfg.sub_dir / f"{scene_id:06d}" / "rgb" / fname
+        fp = self.cfg.split_dir / f"{scene_id:06d}" / "rgb" / fname
         bgr = cv2.imread(str(fp), cv2.IMREAD_COLOR)
         assert bgr is not None
         inst["rgb"] = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
@@ -41,10 +41,10 @@ class RandomRotatedMaskCrop(BopInstanceAux):
     def __init__(
         self,
         crop_res: int,
+        padding_ratio: float,
         grid_random_rotate=True,
         regular_grid=False,
         translation_std=0.1,
-        padding=1.5,
         rgb_interpolation=_default_interpolation_methods,
         random_rotation=True,
     ):
@@ -53,7 +53,7 @@ class RandomRotatedMaskCrop(BopInstanceAux):
         self.grid_random_rotate = grid_random_rotate
         self.grid_regular = regular_grid
         self.translation_std = translation_std
-        self.padding = padding
+        self.padding_ratio = padding_ratio
         self.definition_aux = RandomRotatedMaskCropDefinition(self)
         self.apply_aux = RandomRotatedMaskCropApply(self)
         self.random_rotation = random_rotation
@@ -65,20 +65,18 @@ class RandomRotatedMaskCrop(BopInstanceAux):
 
 
 def calculate_crop_matrix(
-    t_frame_est, crop_res, frame_radius, padding, K, random_rotation, h, w
+    t_frame_est, crop_res, frame_radius, padding_ratio, K, random_rotation, h, w
 ):
     # get the intrinsics of the crop around the estimated position
     #   scale: f * obj_diameter * pad_multiplier / z = res
-    f = crop_res / (frame_radius * 2 * padding) * t_frame_est[2, 0]
+    f = crop_res / (frame_radius * 2 * padding_ratio) * t_frame_est[2, 0]
     #   center: fx/z + cx = res / 2 - 0.5
     c = crop_res / 2 - 0.5 - f * t_frame_est[:2, 0] / t_frame_est[2, 0]
-    K_des = np.array(
-        (
-            (f, 0, c[0]),
-            (0, f, c[1]),
-            (0, 0, 1),
-        )
-    ).astype(np.float32)
+    K_des = np.array((
+        (f, 0, c[0]),
+        (0, f, c[1]),
+        (0, 0, 1),
+    )).astype(np.float32)
     # move center to origin
     K_des[:2, 2] -= crop_res / 2 - 0.5
 
@@ -87,13 +85,11 @@ def calculate_crop_matrix(
     # random rotation
     theta = np.random.uniform(0.0, 2 * np.pi) if random_rotation else 0
     S, C = np.sin(theta), np.cos(theta)
-    Rz = np.array(
-        (
-            (C, -S, 0),
-            (S, C, 0),
-            (0, 0, 1),
-        )
-    )
+    Rz = np.array((
+        (C, -S, 0),
+        (S, C, 0),
+        (0, 0, 1),
+    ))
     M_crop = Rz @ M_crop
     # and move origin to center
     M_crop[:2, 2] += (crop_res / 2 - 0.5) * M_crop[2, 2]
@@ -147,7 +143,7 @@ class RandomRotatedMaskCropDefinition(BopInstanceAux):
             t_frame_est=t_frame_est,
             crop_res=self.p.crop_res,
             frame_radius=frame_radius,
-            padding=self.p.padding,
+            padding_ratio=self.p.padding_ratio,
             K=inst["K"],
             random_rotation=self.p.random_rotation,
             h=h,
@@ -226,6 +222,7 @@ def get_auxs(cfg: DatasetConfig):
     img_aug_cfg = cfg.img_aug_cfg
     random_crop_aux = RandomRotatedMaskCrop(
         crop_res=cfg.crop_res,
+        padding_ratio=cfg.frame.padding_ratio,
         random_rotation=img_aug_cfg.enabled,
     )
 
@@ -239,17 +236,15 @@ def get_auxs(cfg: DatasetConfig):
             TransformsAux(
                 key="rgb",
                 crop_key="AABB_crop",
-                tfms=A.Compose(
-                    [
-                        A.GaussianBlur(blur_limit=(1, 3)),
-                        A.ISONoise(),
-                        A.GaussNoise(),
-                        tfms.DebayerArtefacts(),
-                        tfms.Unsharpen(),
-                        A.CLAHE(),
-                        A.GaussianBlur(blur_limit=(1, 3)),
-                    ]
-                ),
+                tfms=A.Compose([
+                    A.GaussianBlur(blur_limit=(1, 3)),
+                    A.ISONoise(),
+                    A.GaussNoise(),
+                    tfms.DebayerArtefacts(),
+                    tfms.Unsharpen(),
+                    A.CLAHE(),
+                    A.GaussianBlur(blur_limit=(1, 3)),
+                ]),
             )
         )
 
@@ -259,21 +254,19 @@ def get_auxs(cfg: DatasetConfig):
         auxs.append(
             TransformsAux(
                 key="rgb_crop",
-                tfms=A.Compose(
-                    [
-                        A.CoarseDropout(
-                            hole_height_range=(8, 16),
-                            hole_width_range=(8, 16),
-                        ),
-                        A.ColorJitter(
-                            p=img_aug_cfg.cj_p,
-                            hue=img_aug_cfg.cj_hue,
-                            brightness=img_aug_cfg.cj_brightness,
-                            contrast=img_aug_cfg.cj_contrast,
-                            saturation=img_aug_cfg.cj_saturation,
-                        ),
-                    ]
-                ),
+                tfms=A.Compose([
+                    A.CoarseDropout(
+                        hole_height_range=(8, 16),
+                        hole_width_range=(8, 16),
+                    ),
+                    A.ColorJitter(
+                        p=img_aug_cfg.cj_p,
+                        hue=img_aug_cfg.cj_hue,
+                        brightness=img_aug_cfg.cj_brightness,
+                        contrast=img_aug_cfg.cj_contrast,
+                        saturation=img_aug_cfg.cj_saturation,
+                    ),
+                ]),
             )
         )
 

@@ -56,9 +56,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from scipy.spatial.transform import Rotation
-
-FloatTensor = torch.FloatTensor
-LongTensor = torch.LongTensor
+from torch import Tensor
 
 
 @dataclass
@@ -96,7 +94,7 @@ def get_translation_grid_frame(
     return grid_frame.astype(np.float32)
 
 
-def get_grid_origin(t_est: FloatTensor, grid_frame: FloatTensor) -> FloatTensor:
+def get_grid_origin(t_est: Tensor, grid_frame: Tensor) -> Tensor:
     """The grid origin is defined as the zero-corner of the base pix"""
     shape = t_est.shape[:-2]
     assert t_est.shape == (*shape, 3, 1)
@@ -104,12 +102,12 @@ def get_grid_origin(t_est: FloatTensor, grid_frame: FloatTensor) -> FloatTensor:
     return t_est - 0.5 * grid_frame @ torch.ones(3, 1, device=t_est.device)
 
 
-def get_grid_frame_r(grid_frame: FloatTensor, r: int) -> FloatTensor:
+def get_grid_frame_r(grid_frame: Tensor, r: int) -> Tensor:
     """the frame gets divided by two at each recursion"""
     return grid_frame / (2**r)
 
 
-def expand_grid(grid: LongTensor) -> LongTensor:  # (..., 3) -> (..., 8, 3)
+def expand_grid(grid: Tensor) -> Tensor:  # (..., 3) -> (..., 8, 3)
     cells = torch.arange(2, device=grid.device)
     cells = torch.stack(
         torch.meshgrid(cells, cells, cells, indexing="ij"), dim=-1
@@ -117,14 +115,14 @@ def expand_grid(grid: LongTensor) -> LongTensor:  # (..., 3) -> (..., 8, 3)
     return (grid * 2)[..., None, :] + cells.view(8, 3)
 
 
-def grid2pos(grid: LongTensor, t_est: FloatTensor, grid_frame: FloatTensor, r: int):
+def grid2pos(grid: Tensor, t_est: Tensor, grid_frame: Tensor, r: int):
     """returns the centers of bins"""
     grid_frame_r = get_grid_frame_r(grid_frame, r)
     pos = get_grid_origin(t_est, grid_frame) + grid_frame_r @ (grid.mT + 0.5)
     return pos.mT.unsqueeze(-1)  # (b, n, 3, 1)
 
 
-def pos2grid(pos: FloatTensor, t_est: FloatTensor, grid_frame: FloatTensor, r: int):
+def pos2grid(pos: Tensor, t_est: Tensor, grid_frame: Tensor, r: int):
     assert pos.shape[-2:] == (3, 1), pos.shape
     assert t_est.shape[-2:] == (3, 1), t_est.shape
     assert grid_frame.shape[-2:] == (3, 3)
@@ -137,7 +135,7 @@ def pos2grid(pos: FloatTensor, t_est: FloatTensor, grid_frame: FloatTensor, r: i
 ### code related to pix indexing, which can be removed
 
 
-def to_binary(x: torch.LongTensor, bits: int, dim=-1):
+def to_binary(x: Tensor, bits: int, dim=-1):
     """most significant bit to the right"""
     bitmask = 2 ** torch.arange(bits, device=x.device)
     shape = [1 for _ in range(x.ndim + 1)]
@@ -145,27 +143,27 @@ def to_binary(x: torch.LongTensor, bits: int, dim=-1):
     return x.unsqueeze(dim).bitwise_and(bitmask.view(*shape)).ne_(0)
 
 
-def to_decimal(x: torch.LongTensor, dim=-1):
+def to_decimal(x: Tensor, dim=-1):
     bitmask = 2 ** torch.arange(x.shape[dim], device=x.device)
     shape = [1 for _ in range(x.ndim)]
     shape[dim] = x.shape[dim]
     return (x * bitmask.view(*shape)).sum(dim=dim)
 
 
-def pix2grid(pix: LongTensor, r: int, d=3):
+def pix2grid(pix: Tensor, r: int, d=3):
     pix_binary = to_binary(pix, bits=r * d)  # (..., r * d: (eg. [x0, y0, x1, y1, ...]))
     pix_grid = pix_binary.view(*pix.shape, r, d)
     return to_decimal(pix_grid, dim=-2)  # (..., d)
 
 
-def grid2pix(grid: LongTensor, r: int):
+def grid2pix(grid: Tensor, r: int):
     *shape, d = grid.shape
     grid_binary = to_binary(grid, bits=r, dim=-2)  # (..., r, d)
     pix_binary = grid_binary.view(*shape, r * d)
     return to_decimal(pix_binary)
 
 
-def pix2pos(pix: LongTensor, t_est: FloatTensor, grid_frame: FloatTensor, r: int):
+def pix2pos(pix: Tensor, t_est: Tensor, grid_frame: Tensor, r: int):
     """returns the center position of the pixel (explaining the + 0.5)"""
     grid_frame_r = get_grid_frame_r(grid_frame, r)
     grid = pix2grid(pix, r=r).mT
@@ -173,14 +171,14 @@ def pix2pos(pix: LongTensor, t_est: FloatTensor, grid_frame: FloatTensor, r: int
     return pos  # (b, 3, n)
 
 
-def pos2pix(pos: FloatTensor, t_est: FloatTensor, grid_frame: FloatTensor, r: int):
+def pos2pix(pos: Tensor, t_est: Tensor, grid_frame: Tensor, r: int):
     grid_frame_r = get_grid_frame_r(grid_frame, r)
     grid_origin = get_grid_origin(t_est, grid_frame)
     grid = (grid_frame_r.inverse() @ (pos - grid_origin)).long()
     return grid2pix(grid.mT, r=r)  # (..., n)
 
 
-def expand_pix(pix: LongTensor):  # (...) -> (..., 8)
+def expand_pix(pix: Tensor):  # (...) -> (..., 8)
     return (pix * 8)[..., None] + torch.arange(8, device=pix.device)
 
 
@@ -199,10 +197,9 @@ def _main():
     )
     plt.scatter(*t_est[idxs,], zorder=10, c="k", marker="x")
 
+    grid = torch.zeros(1, 3, dtype=torch.long)
     for r in range(6):
-        if r == 0:
-            grid = torch.zeros(1, 3, dtype=int)
-        else:
+        if r > 0:
             grid = expand_grid(grid).view(8**r, 3)
         pos = grid2pos(grid, t_est, grid_frame, r)  # (n, 3, 1)
         print(grid.shape, t_est.shape, grid_frame.shape)

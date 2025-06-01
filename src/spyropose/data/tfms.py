@@ -66,8 +66,9 @@ class DebayerArtefacts(A.ImageOnlyTransform):
         bayer[1::2, 1::2] = img[1::2, 1::2, channel_idxs[0]]
 
         # debayer
-        debayer_method = np.random.choice(
-            (cv2.COLOR_BAYER_BG2BGR, cv2.COLOR_BAYER_BG2BGR_EA)
-        )
+        debayer_method = np.random.choice((
+            cv2.COLOR_BAYER_BG2BGR,
+            cv2.COLOR_BAYER_BG2BGR_EA,
+        ))
         debayered = cv2.cvtColor(bayer, debayer_method)[..., channel_idxs_inv]
         return debayered

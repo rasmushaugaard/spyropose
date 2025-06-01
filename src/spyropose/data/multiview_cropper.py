@@ -40,7 +40,7 @@ class MultiViewCropper:
                 t_frame_est=cam_t_obj_est,
                 crop_res=self.crop_res,
                 frame_radius=self.obj_radius,
-                padding=1.5,
+                padding_ratio=1.5,
                 K=K,
                 random_rotation=False,
                 h=h,

@@ -20,11 +20,9 @@ from typing import List
 import einops
 import numpy as np
 import torch
+from torch import Tensor
 
 from . import translation_grid
-
-LongTensor = torch.LongTensor
-FloatTensor = torch.FloatTensor
 
 
 def get_idx_recursion_0(b, device, extended=False):
@@ -81,14 +79,14 @@ def log_bin_count(r: int):
 
 
 def locate_poses_in_pyramid(
-    q_rot_idx_rlast: LongTensor,
-    rot_idxs: List[LongTensor],
-    log_probs: List[FloatTensor],
-    position_scale: float = None,
-    q_pos: FloatTensor = None,
-    t_est: FloatTensor = None,
-    pos_grid_frame: FloatTensor = None,
-    pos_idxs: List[LongTensor] = None,
+    q_rot_idx_rlast: Tensor,
+    rot_idxs: List[Tensor],
+    log_probs: List[Tensor],
+    position_scale: float,
+    q_pos: Tensor,
+    t_est: Tensor,
+    pos_grid_frame: Tensor,
+    pos_idxs: List[Tensor],
 ):
     """
     Locates the recursion level and idx of the bin representing the query pose.
@@ -106,7 +104,6 @@ def locate_poses_in_pyramid(
     assert q_pos.shape == (b, n, 3, 1)
     assert pos_grid_frame.shape == (b, 3, 3)
     assert len(pos_idxs) == recursion_depth
-    assert position_scale is not None
 
     t_est = t_est.unsqueeze(1)
     pos_grid_frame = pos_grid_frame.unsqueeze(1)
@@ -121,7 +118,7 @@ def locate_poses_in_pyramid(
 
     # traverse the grid top down and return results at different layers
     idx_match = torch.full(
-        size=(b, n, recursion_depth), fill_value=-1, dtype=int, device=device
+        size=(b, n, recursion_depth), fill_value=-1, dtype=torch.long, device=device
     )
     ll = torch.empty(size=(b, n, recursion_depth), dtype=torch.float, device=device)
 

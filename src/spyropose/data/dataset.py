@@ -15,7 +15,7 @@ class BopInstanceDataset(torch.utils.data.Dataset):
         obj_t_frame = np.asarray(cfg.frame.obj_t_frame).reshape(3, 1)
 
         for scene_id in tqdm(cfg.scene_ids, "loading crop info"):
-            scene_folder = cfg.sub_dir / f"{scene_id:06d}"
+            scene_folder = cfg.split_dir / f"{scene_id:06d}"
             scene_gt = json.load((scene_folder / "scene_gt.json").open())
             scene_gt_info = json.load((scene_folder / "scene_gt_info.json").open())
             scene_camera = json.load((scene_folder / "scene_camera.json").open())
@@ -24,7 +24,7 @@ class BopInstanceDataset(torch.utils.data.Dataset):
                 img_info = scene_gt_info[img_id]
                 K = np.array(scene_camera[img_id]["cam_K"]).reshape((3, 3)).copy()
                 for pose_idx, pose in enumerate(poses):
-                    if pose["obj_id"] != cfg.obj_id:
+                    if pose["obj_id"] != cfg.obj_cfg.obj_id:
                         continue
                     pose_info = img_info[pose_idx]
                     if pose_info["visib_fract"] < cfg.min_visib_fract:
@@ -44,7 +44,7 @@ class BopInstanceDataset(torch.utils.data.Dataset):
                             scene_id=scene_id,
                             img_id=int(img_id),
                             K=K,
-                            obj_id=cfg.obj_id,
+                            obj_id=cfg.obj_cfg.obj_id,
                             pose_idx=pose_idx,
                             bbox_visib=bbox_visib,
                             bbox_obj=bbox_obj,

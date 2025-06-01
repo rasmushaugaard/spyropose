@@ -96,11 +96,11 @@ def sample_from_lgts(lgts: Tensor, n: int):
     return log_p.gather(-1, sample_idx), sample_idx
 
 
-def farthest_point_sampling(pc, n):
+def farthest_point_sampling(pc: np.ndarray, n: int):
     m = len(pc)
     assert pc.shape == (m, 3)
 
-    p = pc.mean(axis=0, keepdims=True)
+    p: np.ndarray = pc.mean(axis=0, keepdims=True)
     for i in range(n):
         dists = np.linalg.norm(p[:, None] - pc[None], axis=2)
         # choose the point in pc which is furthest away from all points in p

@@ -4,14 +4,12 @@ import trimesh
 
 
 def orthographic_matrix(left, right, bottom, top, near, far):
-    return np.array(
-        (
-            (2 / (right - left), 0, 0, -(right + left) / (right - left)),
-            (0, 2 / (top - bottom), 0, -(top + bottom) / (top - bottom)),
-            (0, 0, -2 / (far - near), -(far + near) / (far - near)),
-            (0, 0, 0, 1),
-        )
-    )
+    return np.array((
+        (2 / (right - left), 0, 0, -(right + left) / (right - left)),
+        (0, 2 / (top - bottom), 0, -(top + bottom) / (top - bottom)),
+        (0, 0, -2 / (far - near), -(far + near) / (far - near)),
+        (0, 0, 0, 1),
+    ))
 
 
 def projection_matrix(K, w, h, near=10.0, far=10000.0):  # 1 cm to 10 m
@@ -109,12 +107,10 @@ class SimpleRenderer:
         return
 
     def render(self, K, R, t):
-        mv = np.concatenate(
-            (
-                np.concatenate((R, t), axis=1),
-                [[0, 0, 0, 1]],
-            )
-        )
+        mv = np.concatenate((
+            np.concatenate((R, t), axis=1),
+            [[0, 0, 0, 1]],
+        ))
         mvp = projection_matrix(K, self.w, self.h, self.near, self.far) @ mv
         self.prog["R"].value = tuple(R.T.astype("f4").reshape(-1))
         self.prog["mvp"].value = tuple(mvp.T.astype("f4").reshape(-1))

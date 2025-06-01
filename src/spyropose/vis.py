@@ -1,24 +1,23 @@
+from typing import Optional
+
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation
 
 
 def visualize_so3_probabilities(
-    rotations,
-    probabilities,
-    rotations_gt=None,
-    ax=None,
-    fig=None,
-    display_threshold_probability=0,
-    show_color_wheel=False,
+    rotations: np.ndarray,
+    probabilities: np.ndarray,
+    rotations_gt: Optional[np.ndarray] = None,
+    ax: Optional[Axes] = None,
+    display_threshold_probability=0.0,
     rot_offset=np.eye(3),
     canonical_rotation=Rotation.from_euler("xyz", [0.4] * 3).as_matrix(),
     scatter_alpha=1.0,
     scatterpoint_scaling=4e3,
-    scatter_edgecolor="none",
-    visualize_prob_by_alpha=False,
-    cmap=plt.cm.hsv,
+    cmap=plt.get_cmap("hsv"),
     s=5,
     long_offset=0.0,
     lat_offset=0.0,
@@ -41,7 +40,6 @@ def visualize_so3_probabilities(
         marker_linewidth = marker_linewidth * 2
 
     if ax is None:
-        assert fig is None
         fig = plt.figure(figsize=(8, 4), dpi=100)
         ax = fig.add_subplot(111, projection="mollweide")
 
@@ -53,7 +51,7 @@ def visualize_so3_probabilities(
         ) - np.pi
         latitude = (np.arcsin(xyz[..., 2]) + np.pi / 2 + lat_offset) % np.pi - np.pi / 2
         tilt_angles = Rotation.from_matrix(R).as_euler("zyx")[..., 0]
-        # TODO: Choose a continously varying reference frame for tilt visualization.
+        # TODO: Choose a continuously varying reference frame for tilt visualization.
         return longitude, latitude, tilt_angles
 
     def show_marker(rotation=np.eye(3), marker="o", s=marker_size, fill=False):
@@ -87,40 +85,24 @@ def visualize_so3_probabilities(
     rotation_mask = probabilities > display_threshold_probability
     longitudes, latitudes, tilt_angles = get_vis_rot(rotations[rotation_mask])
 
-    ax.grid(True, zorder=-10)
+    ax.grid(visible=True, zorder=-10)
     ax.set_xticklabels([])
     ax.set_yticklabels([])
 
-    if visualize_prob_by_alpha:
-        # WIP
-        alpha = probabilities[rotation_mask]
-        alpha = (alpha / alpha.max()) ** gamma
-        colors = cmap(0.5 + tilt_angles / 2.0 / np.pi)
-        ax.scatter(
-            longitudes,
-            latitudes,
-            s=s,
-            c=colors if c is None else c,
-            alpha=alpha * scatter_alpha,
-            edgecolors="none",
-            zorder=scatter_zorder,
-        )
-    else:
-        ax.scatter(
-            longitudes,
-            latitudes,
-            # rlha: s is scatter point area (so facearea *is* proportional to probability)
-            s=scatterpoint_scaling * probabilities[rotation_mask],
-            c=cmap(0.5 + tilt_angles / 2.0 / np.pi),
-            # rlha: overlapping areas can accumulate and better represent dist. with alpha < 1
-            alpha=scatter_alpha,
-            # rlha: the edge expands the area proportional to the circumference, not the area,
-            #       and thus, the visualization were overrepresenting low-probability points.
-            edgecolors=scatter_edgecolor,
-        )
+    alpha = probabilities[rotation_mask]
+    alpha = (alpha / alpha.max()) ** gamma
+    colors = cmap(0.5 + tilt_angles / 2.0 / np.pi)
+    ax.scatter(
+        longitudes,
+        latitudes,
+        s=s,
+        c=colors if c is None else c,
+        alpha=alpha * scatter_alpha,
+        edgecolors="none",
+        zorder=scatter_zorder,
+    )
 
     return dict(
-        fig=fig,
         ax=ax,
         canonical_rotation=canonical_rotation,
         show_marker=show_marker,

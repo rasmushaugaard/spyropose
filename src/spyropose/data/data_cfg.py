@@ -2,58 +2,31 @@ import json
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
+from typing import Any
 
 from ..frame import SpyroFrame
 
 
 @dataclass
-class ImgAugConfig:
-    enabled: bool = True
-    cj_p: float = 1.0
-    cj_hue: float = 0.1
-    cj_brightness: float = 0.5
-    cj_contrast: float = 0.5
-    cj_saturation: float = 0.5
-
-
-@dataclass
-class DatasetConfig:
+class ObjectConfig:
     dataset: str
     obj: str
-    frame: SpyroFrame = None
-    scene_id_range: tuple[int, int] = None
-    sub_dir_name: str = "train_pbr"
-    img_ext: str = "jpg"
     meshes_dir_name: str = "models"
-    img_aug_cfg: ImgAugConfig = field(default_factory=lambda: ImgAugConfig())
-    crop_res: int = 224
-    recursion_depth: int = 7  # more a model detail
-    min_visib_fract: float = 0.2
-    min_px_count_visib: int = 512
 
     @property
     def root_dir(self):
-        return Path("data/bop") / self.dataset
+        root = Path("data/bop") / self.dataset
+        assert root.is_dir(), root
+        return root
 
     @property
     def meshes_dir(self):
         return self.root_dir / self.meshes_dir_name
 
-    @property
-    def sub_dir(self):
-        return self.root_dir / self.sub_dir_name
-
-    @cached_property
-    def scene_ids(self):
-        if self.scene_id_range is None:
-            return tuple(sorted([int(p.name) for p in self.sub_dir.glob("*")]))
-        else:
-            return tuple(range(*self.scene_id_range))
-
     @cached_property
     def mesh_info(self):
         with (self.meshes_dir / "models_info.json").open() as f:
-            meshes_info: dict[str, dict[str]] = json.load(f)
+            meshes_info: dict[str, dict[str, Any]] = json.load(f)
 
         try:
             # by index (bop format)
@@ -86,3 +59,39 @@ class DatasetConfig:
     @property
     def obj_id(self) -> int:
         return self.mesh_info["id"]
+
+
+@dataclass
+class ImgAugConfig:
+    enabled: bool = True
+    cj_p: float = 1.0
+    cj_hue: float = 0.1
+    cj_brightness: float = 0.5
+    cj_contrast: float = 0.5
+    cj_saturation: float = 0.5
+
+
+@dataclass
+class DatasetConfig:
+    obj_cfg: ObjectConfig
+    frame: SpyroFrame
+
+    split_dir_name: str = "train_pbr"
+    crop_res: int = 224
+    scene_id_range: tuple[int, int] | None = None
+    img_aug_cfg: ImgAugConfig = field(default_factory=lambda: ImgAugConfig())
+    recursion_depth: int = 7
+    min_visib_fract: float = 0.1
+    min_px_count_visib: int = 1024
+    img_ext: str = "jpg"
+
+    @property
+    def split_dir(self):
+        return self.obj_cfg.root_dir / self.split_dir_name
+
+    @cached_property
+    def scene_ids(self):
+        if self.scene_id_range is None:
+            return tuple(sorted([int(p.name) for p in self.split_dir.glob("*")]))
+        else:
+            return tuple(range(*self.scene_id_range))

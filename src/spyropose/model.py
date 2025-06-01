@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 import einops
 import numpy as np
@@ -7,28 +8,25 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import trimesh
+from torch import Tensor
 
 from . import rotation_grid, se3_grid, translation_grid, unet, utils
+from .data.data_cfg import ObjectConfig
 from .frame import SpyroFrame
-
-Tensor = torch.Tensor
 
 
 @dataclass
 class SpyroPoseModelConfig:
-    dataset_name: str = None
-    obj_name: str = None
-    n_keypoints: int = 16
-    keypoints: tuple[tuple[float, float, float], ...] = None  # in spyro frame
+    obj_cfg: ObjectConfig
+    frame: SpyroFrame
+    keypoints: list[tuple[float, float, float]]
     embed_dim: int = 64
     n_layers: int = 3
     d_ff: int = 256
     val_top_k: int = 512
     crop_res: int = 224
     vis_model: str = "unet18"
-    position_scale: float = None
-    frame: SpyroFrame = None
+    position_scale: float = 1e-3
     recursion_depth: int = 7
     # training
     lr: float = 1e-4
@@ -37,23 +35,24 @@ class SpyroPoseModelConfig:
     dropout: float = 0.1
     point_dropout: float = 0.1
 
-    def init_keypoints_from_mesh(self, mesh: trimesh.Trimesh, tol=1.001):
-        assert self.keypoints is None
-        # only choose keypoints in frame
-        frame_vertices = mesh.vertices - self.frame.obj_t_frame
-        mask = np.linalg.norm(frame_vertices, axis=1) < self.frame.radius * tol
-        frame_vertices = frame_vertices[mask]
-        frame_pts = utils.farthest_point_sampling(frame_vertices, self.n_keypoints)
-        self.keypoints = frame_pts.tolist()
+    @property
+    def n_keypoints(self):
+        return len(self.keypoints)
+
+    @property
+    def r_last(self):  # last recursion depth index
+        return self.recursion_depth - 1
 
 
 class SpyroPoseModel(pl.LightningModule):
+    keypoints: Tensor
+
     def __init__(self, cfg: SpyroPoseModelConfig):
         super().__init__()
         self.cfg = cfg
         # stores hyperparams for future instantiation
         self.save_hyperparameters(logger=False)
-        # store keypoints with parameters (but with requires_grad=False)
+
         self.register_buffer("keypoints", torch.tensor(cfg.keypoints, torch.float))
 
         self.point_dropout = nn.Dropout2d(cfg.point_dropout)
@@ -96,7 +95,7 @@ class SpyroPoseModel(pl.LightningModule):
         # grad is summed and then backpropped, to reduce memory usage.
         self.automatic_optimization = False
 
-    def configure_optimizers(self):
+    def configure_optimizers(self):  # type: ignore
         opt = torch.optim.AdamW(
             self.parameters(), lr=self.cfg.lr, weight_decay=self.cfg.weight_decay
         )
@@ -111,6 +110,11 @@ class SpyroPoseModel(pl.LightningModule):
         sched = torch.optim.lr_scheduler.LambdaLR(opt, lr)
         return [opt], [dict(scheduler=sched)]
 
+    def optimizer(self):
+        opt = self.optimizers()
+        assert isinstance(opt, torch.optim.AdamW)
+        return opt
+
     def forward_vis(self, img) -> Tensor:
         img = (img - 0.5) / 0.2  # approx pre-training normalization
         out = self.vis_model(img)
@@ -118,20 +122,18 @@ class SpyroPoseModel(pl.LightningModule):
         return out  # (b, c, h, w)
 
     @staticmethod
-    def opencv2torch(K: Tensor, h, w):
+    def opencv2torch(K: Tensor, h: int, w: int):
         """
         from opencv coordinates [-0.5, res - 0.5]
         to torch coordinates [-1., 1.]
         """
         sx, sy = 2 / w, 2 / h
         return (
-            torch.tensor(
-                [
-                    [sx, 0, 0.5 * sx - 1],
-                    [0, sy, 0.5 * sy - 1],
-                    [0, 0, 1],
-                ]
-            ).to(K.device)
+            torch.tensor([
+                [sx, 0, 0.5 * sx - 1],
+                [0, sy, 0.5 * sy - 1],
+                [0, 0, 1],
+            ]).to(K.device)
             @ K
         )
 
@@ -142,7 +144,7 @@ class SpyroPoseModel(pl.LightningModule):
         rot: Tensor,
         pos: Tensor,
         r: int,
-        batch_size: int = None,
+        batch_size: Optional[int] = None,
     ):
         b, n = rot.shape[:2]
         assert K.shape == (b, 3, 3)
@@ -198,12 +200,12 @@ class SpyroPoseModel(pl.LightningModule):
         self,
         img: Tensor,
         K: Tensor,
-        world_t_obj_est: Tensor,
+        world_t_obj_est: Tensor,  # TODO: frame!
         top_k: int,
-        pos_grid_frame: torch.Tensor = None,
-        world_R_cam: Tensor = None,
-        world_t_cam: Tensor = None,
-        pose_bs: int = None,
+        pos_grid_frame: Tensor,  # TODO: rename pos_grid_frame to basis
+        world_R_cam: Optional[Tensor] = None,
+        world_t_cam: Optional[Tensor] = None,
+        pose_bs: Optional[int] = None,
     ):
         """Can be used for both single and multi-view inference"""
         b, c, _, h, w = img.shape
@@ -227,17 +229,20 @@ class SpyroPoseModel(pl.LightningModule):
 
         vis_feats = self.forward_vis(img.view(bc, 3, h, w))
 
-        rot_idxs, pos_idxs, expand_idxs = [], [], []
-        log_probs = []
-        log_prob = None
+        rot_idxs: list[Tensor] = []
+        pos_idxs: list[Tensor] = []
+        expand_idxs: list[Tensor] = []
+        log_probs: list[Tensor] = []
+        log_prob = torch.tensor([])
+
+        # recursion 0
+        rot_idx, pos_idx = se3_grid.get_idx_recursion_0(b=b, device=device)
+        n = rot_idx.shape[1]
+        # we cover all bins at recursion 0, log(sum_prob = 1) = 0
+        log_sum_prob_expanded = torch.zeros(b, 1, device=device)
 
         for r in range(self.cfg.recursion_depth):
-            if r == 0:
-                rot_idx, pos_idx = se3_grid.get_idx_recursion_0(b=b, device=device)
-                n = rot_idx.shape[1]
-                # we cover all bins at recursion 0, log(sum_prob = 1) = 0
-                log_sum_prob_expanded = torch.zeros(b, 1, device=device)
-            else:
+            if r > 0:
                 # take top k bins
                 k = min(top_k, log_prob.shape[1])
                 log_prob_expanded, expand_idx = torch.topk(
@@ -295,7 +300,7 @@ class SpyroPoseModel(pl.LightningModule):
             log_probs.append(log_prob)
 
         # Indicate that no idxs from the last recursion are expanded
-        expand_idxs.append(torch.empty(b, 0, dtype=int, device=device))
+        expand_idxs.append(torch.empty(b, 0, dtype=torch.long, device=device))
 
         return dict(
             rot_idxs=rot_idxs,
@@ -331,8 +336,7 @@ class SpyroPoseModel(pl.LightningModule):
 
         if self.training:
             vis_feats_.requires_grad = True
-            opt = self.optimizers()
-            opt.zero_grad()
+            self.optimizer().zero_grad()
 
         # subtract up to one se3 recursion 0 (pos rec. 1) grid spacing
         # TODO: why 0.5?
@@ -343,14 +347,14 @@ class SpyroPoseModel(pl.LightningModule):
         )
         n = rot_idx.shape[1]
 
-        rlast = self.cfg.recursion_depth - 1
         pos_idx_target_rlast = translation_grid.pos2grid(
-            pos=t_target, t_est=t_est, grid_frame=t_grid_frame, r=rlast + 1
+            pos=t_target, t_est=t_est, grid_frame=t_grid_frame, r=self.cfg.r_last + 1
         )
 
-        losses = []
-        s = None
-        log_q = None
+        losses: list[Tensor] = []
+        s = 0
+        log_q = torch.tensor([])
+        lgts = torch.tensor([])
 
         for r in range(self.cfg.recursion_depth):
             assert rot_idx.shape == (
@@ -361,9 +365,9 @@ class SpyroPoseModel(pl.LightningModule):
 
             # Concatenate the true (nearest) grid point to the sampled points,
             # to process all of them in parallel.
-            # Nearest rotation is found in the dataloader because it's using a cpu-bound library
+            # Nearest rotation is found in the dataloader because it's cpu-bound.
             rot_idx_target_r = rot_idx_target_rlast.div(
-                8 ** (rlast - r), rounding_mode="trunc"
+                8 ** (self.cfg.r_last - r), rounding_mode="trunc"
             )
             rot_idx = torch.cat(
                 (
@@ -374,7 +378,7 @@ class SpyroPoseModel(pl.LightningModule):
             )  # (b, 1+n)
 
             pos_idx_target_r = pos_idx_target_rlast.div(
-                2 ** (rlast - r), rounding_mode="trunc"
+                2 ** (self.cfg.r_last - r), rounding_mode="trunc"
             )
             pos_idx = torch.cat(
                 (pos_idx_target_r.view(b, 1, 3), pos_idx.view(b, n, 3)), dim=1
@@ -446,12 +450,13 @@ class SpyroPoseModel(pl.LightningModule):
 
         if self.training:
             vis_feats.backward(gradient=vis_feats_.grad)
-            opt.step()
-            self.lr_schedulers().step()
-        return dict(lgts=lgts, idxs=rot_idx, losses=losses)
+            self.optimizer().step()
+            self.lr_schedulers().step()  # type: ignore
+
+        return losses
 
     def step(self, batch, log_prefix):
-        res = self.forward_train(
+        losses = self.forward_train(
             img=batch["img"],
             K=batch["K"],
             t_est=batch["t_est"],
@@ -465,12 +470,10 @@ class SpyroPoseModel(pl.LightningModule):
             R_offset=batch["R_offset"],
         )
         for r in range(self.cfg.recursion_depth):
-            self.log(
-                f"{log_prefix}/loss_{r}", res["losses"][r], add_dataloader_idx=False
-            )
+            self.log(f"{log_prefix}/loss_{r}", losses[r], add_dataloader_idx=False)
         self.log(
             f"{log_prefix}/loss",
-            torch.stack(res["losses"]).mean(),
+            torch.stack(losses).mean(),
             add_dataloader_idx=False,
         )
 
@@ -480,18 +483,15 @@ class SpyroPoseModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx, dataloader_idx=1):
         prefix = ["val", "test"][dataloader_idx]
         self.step(batch, prefix)
-        ll = self.eval_step(
-            batch=batch,
-            pose_bs=10_000,
-            top_k=self.val_top_k,
-            position_scale=self.position_scale,
-        )
+        ll = self.eval_step(batch=batch, pose_bs=10_000, top_k=self.cfg.val_top_k)
         for r in range(self.cfg.recursion_depth):
             self.log(f"{prefix}/ll_{r}", ll[..., r].mean(), add_dataloader_idx=False)
 
-    def forward_infer_batch(self, batch, top_k: int = None, pose_bs: int = None):
+    def forward_infer_batch(
+        self, batch, top_k: Optional[int] = None, pose_bs: Optional[int] = None
+    ):
         if top_k is None:
-            top_k = self.val_top_k
+            top_k = self.cfg.val_top_k
 
         return self.forward_infer(
             img=batch["img"].unsqueeze(1),
@@ -502,22 +502,23 @@ class SpyroPoseModel(pl.LightningModule):
             pose_bs=pose_bs,
         )
 
-    def eval_step(self, batch, pose_bs=10_000, top_k=512, position_scale=None):
+    def eval_step(self, batch, pose_bs=10_000, top_k=512):
         out = self.forward_infer_batch(batch, top_k=top_k, pose_bs=pose_bs)
         _, ll = se3_grid.locate_poses_in_pyramid(
-            q_rot_idx_rlast=batch[f"rot_idx_target_{self.cfg.recursion_depth - 1}"],
+            q_rot_idx_rlast=batch[f"rot_idx_target_{self.cfg.r_last}"],
             log_probs=out["log_probs"],
             rot_idxs=out["rot_idxs"],
             t_est=batch["t_est"],
             pos_grid_frame=batch["t_grid_frame"],
             q_pos=batch["t"].unsqueeze(1),
             pos_idxs=out["pos_idxs"],
-            position_scale=position_scale,
+            position_scale=self.cfg.position_scale,
         )
         return ll
 
     @staticmethod
     def load_from_run_id(run_id, return_fp=False):
+        # TODO
         ckpt_path = Path("data") / "spyropose" / run_id / "checkpoints"
         ckpt_path = list(ckpt_path.glob("*.ckpt"))
         assert len(ckpt_path) == 1

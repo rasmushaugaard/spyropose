@@ -98,8 +98,7 @@ def calculate_crop_matrix(
     # crop to allow only applying image augmentations on the AABB
     mi, ma = -0.5, crop_res - 0.5
     corners = (
-        np.linalg.inv(M_crop)
-        @ np.array(((mi, mi, 1), (mi, ma, 1), (ma, ma, 1), (ma, mi, 1))).T
+        np.linalg.inv(M_crop) @ np.array(((mi, mi, 1), (mi, ma, 1), (ma, ma, 1), (ma, mi, 1))).T
     )
     corners = corners[:2] / corners[2:]
     left, top = np.floor(corners.min(axis=1)).astype(int)
@@ -130,9 +129,9 @@ class RandomRotatedMaskCropDefinition(BopInstanceAux):
         )  # (3, 3)
         # sample offset within the rotation-independent grid region
         # this offset serves to simulate errors of a 2D detector with a depth estimate
-        t_offset = utils.sample_truncated_normal(
-            n=1, std=self.p.translation_std, trunc=0.5
-        )[0, :, None]
+        t_offset = utils.sample_truncated_normal(n=1, std=self.p.translation_std, trunc=0.5)[
+            0, :, None
+        ]
         t_offset = t_grid_frame @ t_offset
         t_frame_est = t_frame + t_offset
         inst["t_frame_est"] = t_frame_est

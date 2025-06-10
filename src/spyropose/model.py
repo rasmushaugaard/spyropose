@@ -53,7 +53,7 @@ class SpyroPoseModel(pl.LightningModule):
         # stores hyperparams for future instantiation
         self.save_hyperparameters(logger=False)
 
-        self.register_buffer("keypoints", torch.tensor(cfg.keypoints, torch.float))
+        self.register_buffer("keypoints", torch.tensor(cfg.keypoints, dtype=torch.float))
 
         self.point_dropout = nn.Dropout2d(cfg.point_dropout)
 
@@ -214,9 +214,7 @@ class SpyroPoseModel(pl.LightningModule):
         assert world_t_obj_est.shape == (b, 3, 1)
         assert pos_grid_frame.shape == (b, 3, 3)
         if world_R_cam is None or world_t_cam is None:
-            world_R_cam = torch.eye(3, device=device, dtype=torch.float).view(
-                1, 1, 3, 3
-            )
+            world_R_cam = torch.eye(3, device=device, dtype=torch.float).view(1, 1, 3, 3)
             world_t_cam = torch.zeros(1, 1, 3, 1, device=device, dtype=torch.float)
         assert world_R_cam.shape == (b, c, 3, 3)
         assert world_t_cam.shape == (b, c, 3, 1)
@@ -245,9 +243,7 @@ class SpyroPoseModel(pl.LightningModule):
             if r > 0:
                 # take top k bins
                 k = min(top_k, log_prob.shape[1])
-                log_prob_expanded, expand_idx = torch.topk(
-                    log_prob, k=k, dim=1
-                )  # 2 x (b, k)
+                log_prob_expanded, expand_idx = torch.topk(log_prob, k=k, dim=1)  # 2 x (b, k)
                 expand_idxs.append(expand_idx)
                 log_sum_prob_expanded = torch.logsumexp(
                     log_prob_expanded, dim=1, keepdim=True
@@ -258,9 +254,7 @@ class SpyroPoseModel(pl.LightningModule):
                     expand_idx,
                 ]
                 # and expand them
-                rot_idx, pos_idx = se3_grid.expand(
-                    rot_idx=rot_idx, pos_idx=pos_idx, flat=True
-                )
+                rot_idx, pos_idx = se3_grid.expand(rot_idx=rot_idx, pos_idx=pos_idx, flat=True)
                 n = rot_idx.shape[1]
             assert rot_idx.shape == (b, n)
             assert pos_idx.shape == (b, n, 3)
@@ -270,9 +264,7 @@ class SpyroPoseModel(pl.LightningModule):
                 grid=pos_idx, t_est=world_t_obj_est, grid_frame=pos_grid_frame, r=r + 1
             )  # (b, n, 3, 1)
 
-            cam_R_obj = cam_R_world.unsqueeze(2) @ world_R_obj.unsqueeze(
-                1
-            )  # (b, c, n, 3, 3)
+            cam_R_obj = cam_R_world.unsqueeze(2) @ world_R_obj.unsqueeze(1)  # (b, c, n, 3, 3)
             cam_t_obj = cam_R_world.unsqueeze(2) @ world_t_obj.unsqueeze(
                 1
             ) + cam_t_world.unsqueeze(2)  # (b, c, n, 3, 1)
@@ -342,9 +334,7 @@ class SpyroPoseModel(pl.LightningModule):
         # TODO: why 0.5?
         t_est = t_est - t_grid_frame @ torch.rand(b, 3, 1, device=device) * 0.5
 
-        rot_idx, pos_idx = se3_grid.get_idx_recursion_0(
-            b=b, device=device, extended=True
-        )
+        rot_idx, pos_idx = se3_grid.get_idx_recursion_0(b=b, device=device, extended=True)
         n = rot_idx.shape[1]
 
         pos_idx_target_rlast = translation_grid.pos2grid(
@@ -417,9 +407,7 @@ class SpyroPoseModel(pl.LightningModule):
             # samples for next recursion
             if r == 0:
                 # sample across all
-                log_q, sample_idx = utils.sample_from_lgts(
-                    lgts=lgts_q, n=self.cfg.n_samples
-                )
+                log_q, sample_idx = utils.sample_from_lgts(lgts=lgts_q, n=self.cfg.n_samples)
                 rot_idx = rot_idx[:, 1:].gather(1, sample_idx)
                 pos_idx = pos_idx[:, 1:][
                     torch.arange(b, device=device).view(b, 1), sample_idx
@@ -427,14 +415,10 @@ class SpyroPoseModel(pl.LightningModule):
             else:
                 # sample one per expanded element
                 assert s == self.cfg.n_samples
-                log_q_, sample_idx = utils.sample_from_lgts(
-                    lgts=lgts_q.view(b, s, bf), n=1
-                )
+                log_q_, sample_idx = utils.sample_from_lgts(lgts=lgts_q.view(b, s, bf), n=1)
                 # sampling probability is recursive
                 log_q = log_q + log_q_.view(b, s)
-                rot_idx = (
-                    rot_idx[:, 1:].view(b, s, bf).gather(2, sample_idx).squeeze(2)
-                )  # (b, s)
+                rot_idx = rot_idx[:, 1:].view(b, s, bf).gather(2, sample_idx).squeeze(2)  # (b, s)
                 pos_idx = pos_idx[:, 1:].view(b, s, bf, 3)[
                     torch.arange(b, device=device).view(b, 1),
                     torch.arange(s, device=device).view(1, s),
@@ -464,9 +448,7 @@ class SpyroPoseModel(pl.LightningModule):
             t_target=batch["t"],
             # only provide the same modality / symmetry during training
             # assuming no knowledge about symmetries during training:
-            rot_idx_target_rlast=batch[
-                f"rot_idx_target_{self.cfg.recursion_depth - 1}"
-            ][:, 0],
+            rot_idx_target_rlast=batch[f"rot_idx_target_{self.cfg.recursion_depth - 1}"][:, 0],
             R_offset=batch["R_offset"],
         )
         for r in range(self.cfg.recursion_depth):

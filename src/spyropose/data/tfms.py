@@ -20,8 +20,7 @@ def denormalize(img: Union[np.ndarray, torch.Tensor]):
     mu, std = imagenet_stats
     if isinstance(img, torch.Tensor):
         mu, std = [
-            torch.Tensor(v).type(img.dtype).to(img.device)[:, None, None]
-            for v in (mu, std)
+            torch.Tensor(v).type(img.dtype).to(img.device)[:, None, None] for v in (mu, std)
         ]
     return img * std + mu
 

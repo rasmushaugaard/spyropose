@@ -109,9 +109,7 @@ def get_grid_frame_r(grid_frame: Tensor, r: int) -> Tensor:
 
 def expand_grid(grid: Tensor) -> Tensor:  # (..., 3) -> (..., 8, 3)
     cells = torch.arange(2, device=grid.device)
-    cells = torch.stack(
-        torch.meshgrid(cells, cells, cells, indexing="ij"), dim=-1
-    )  # (2, 2, 2, 3)
+    cells = torch.stack(torch.meshgrid(cells, cells, cells, indexing="ij"), dim=-1)  # (2, 2, 2, 3)
     return (grid * 2)[..., None, :] + cells.view(8, 3)
 
 
@@ -252,9 +250,7 @@ def __main():
         grid = (
             grid.reshape(-1, 1, 3)
             + (
-                np.stack(
-                    np.meshgrid(*([[-0.5, 0.5]] * 3), indexing="ij"), axis=-1
-                ).reshape(-1, 3)
+                np.stack(np.meshgrid(*([[-0.5, 0.5]] * 3), indexing="ij"), axis=-1).reshape(-1, 3)
                 @ grid_frame.T
             ).reshape(1, -1, 3)
         ).reshape(-1, 3)

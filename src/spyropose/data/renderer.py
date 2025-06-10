@@ -49,14 +49,10 @@ class SimpleRenderer:
         if h is None:
             h = w
         self.h, self.w = h, w
-        self.ctx = moderngl.create_context(
-            standalone=True, backend="egl", device_index=device_idx
-        )
+        self.ctx = moderngl.create_context(standalone=True, backend="egl", device_index=device_idx)
         self.ctx.disable(moderngl.CULL_FACE)
         self.ctx.enable(moderngl.DEPTH_TEST)
-        self.fbo = self.ctx.simple_framebuffer(
-            (w, h), components=components, dtype=dtype
-        )
+        self.fbo = self.ctx.simple_framebuffer((w, h), components=components, dtype=dtype)
         self.near, self.far = near, far
 
         self.prog = self.ctx.program(

@@ -43,9 +43,7 @@ def get_idx_recursion_0(b, device, extended=False):
         n_pos=n_pos,
     )
     pos_idx = torch.arange(pos_sidelen, device=device)
-    pos_idx = torch.stack(torch.meshgrid([pos_idx] * 3, indexing="ij"), dim=-1).view(
-        n_pos, 3
-    )
+    pos_idx = torch.stack(torch.meshgrid([pos_idx] * 3, indexing="ij"), dim=-1).view(n_pos, 3)
     pos_idx = einops.repeat(pos_idx, "n_pos d -> b (n_rot n_pos) d", b=b, n_rot=n_rot)
     return rot_idx, pos_idx
 
@@ -124,9 +122,7 @@ def locate_poses_in_pyramid(
 
     for r in range(recursion_depth):
         # rotation index expansion is 8
-        q_rot_idx = q_rot_idx_rlast.div(
-            8 ** (rlast - r), rounding_mode="trunc"
-        ).unsqueeze(2)
+        q_rot_idx = q_rot_idx_rlast.div(8 ** (rlast - r), rounding_mode="trunc").unsqueeze(2)
         assert q_rot_idx.shape == (b, n, 1)
         rot_idx = rot_idxs[r].unsqueeze(1)
         l = rot_idx.shape[-1]
@@ -134,9 +130,7 @@ def locate_poses_in_pyramid(
         match = rot_idx == q_rot_idx
 
         # position index expansion is 2 per dim
-        q_pos_idx = q_pos_idx_rlast.div(
-            2 ** (rlast - r), rounding_mode="trunc"
-        ).unsqueeze(2)
+        q_pos_idx = q_pos_idx_rlast.div(2 ** (rlast - r), rounding_mode="trunc").unsqueeze(2)
         assert q_pos_idx.shape == (b, n, 1, 3)
         pos_idx = pos_idxs[r].unsqueeze(1)
         assert pos_idx.shape == (b, 1, l, 3)

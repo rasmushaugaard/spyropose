@@ -9,9 +9,7 @@ from . import utils
 
 def vec2pix(R_z, r):
     """R_z to nested healpix index at recursion r"""
-    return hp.vec2pix(
-        nside=2**r, x=R_z[..., 0], y=R_z[..., 1], z=R_z[..., 2], nest=True
-    )
+    return hp.vec2pix(nside=2**r, x=R_z[..., 0], y=R_z[..., 1], z=R_z[..., 2], nest=True)
 
 
 @cache

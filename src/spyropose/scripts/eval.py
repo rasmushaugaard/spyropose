@@ -36,9 +36,7 @@ def evaluate(
     ckpt_name = model_path.with_suffix("").name
     split_suffix = f"_{split}" if split != "test" else ""
     regular_grid_suffix = "_regulargrid" if regular_grid else ""
-    result_fp = (
-        folder / f"{ckpt_name}_eval_topk={topk}{split_suffix}{regular_grid_suffix}.npy"
-    )
+    result_fp = folder / f"{ckpt_name}_eval_topk={topk}{split_suffix}{regular_grid_suffix}.npy"
     if result_fp.exists() and cache and not overwrite:
         # warnings.warn(f'{id}, topk={topk} already evaluated')
         return np.load(result_fp)

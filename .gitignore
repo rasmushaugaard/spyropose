@@ -1,6 +1,6 @@
 /data
-/.venv
-/.ruff_cache
 /sb
+.venv
+.ruff_cache
 __pycache__
 *.egg-info

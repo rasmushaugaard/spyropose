@@ -87,9 +87,7 @@ for group_idx, group in frame_index.iterrows():
         t_est = d["t_est"]  # world because cam0 is world frame
         assert t_est.shape == (3, 1)
         t_est = to_dev(t_est).unsqueeze(0)
-        t_grid_frame = d[
-            "t_grid_frame"
-        ]  # grid frame and rotation index is also correct
+        t_grid_frame = d["t_grid_frame"]  # grid frame and rotation index is also correct
         assert t_grid_frame.shape == (3, 3)
         t_grid_frame = to_dev(t_grid_frame).unsqueeze(0)
 
@@ -121,9 +119,9 @@ for group_idx, group in frame_index.iterrows():
         )
 
         _, ll = se3_grid.locate_poses_in_pyramid(
-            q_rot_idx_rlast=to_dev(
-                d[f"rot_idx_target_{model.recursion_depth - 1}"]
-            ).unsqueeze(0),  # (b, 1)
+            q_rot_idx_rlast=to_dev(d[f"rot_idx_target_{model.recursion_depth - 1}"]).unsqueeze(
+                0
+            ),  # (b, 1)
             log_probs=out["log_probs"],
             rot_idxs=out["rot_idxs"],
             t_est=t_est,

@@ -10,7 +10,7 @@ from ..frame import SpyroFrame
 @dataclass
 class ObjectConfig:
     dataset: str
-    obj: str
+    name: str
     meshes_dir_name: str = "models"
 
     @property
@@ -30,18 +30,18 @@ class ObjectConfig:
 
         try:
             # by index (bop format)
-            obj_id = int(self.obj)
+            obj_id = int(self.name)
             mesh_path = self.meshes_dir / f"obj_{obj_id:06d}.ply"
         except ValueError:
             # by name
-            mesh_path = self.meshes_dir / f"{self.obj}"
+            mesh_path = self.meshes_dir / f"{self.name}"
             mesh_name2id = dict()
             for idx_str, mesh_info in meshes_info.items():
                 if "mesh_name" in mesh_info:
                     mesh_name2id[mesh_info.get("mesh_name")] = int(idx_str)
             if mesh_path.name not in mesh_name2id:
                 raise RuntimeError(
-                    f"Object name '{self.obj}' not found. "
+                    f"Object name '{self.name}' not found. "
                     f"Available names: {list(mesh_name2id.keys())}"
                 )
             obj_id = mesh_name2id[mesh_path.name]

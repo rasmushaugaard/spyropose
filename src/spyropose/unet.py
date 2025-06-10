@@ -23,16 +23,12 @@ class ResNetUNet(nn.Module):
         self.base_layers = list(self.base_model.children())
 
         self.layer0 = nn.Sequential(*self.base_layers[:3])  # size=(N, 64, x.H/2, x.W/2)
-        self.layer1 = nn.Sequential(
-            *self.base_layers[3:5]
-        )  # size=(N, 64, x.H/4, x.W/4)
+        self.layer1 = nn.Sequential(*self.base_layers[3:5])  # size=(N, 64, x.H/4, x.W/4)
         self.layer2 = self.base_layers[5]  # size=(N, 128, x.H/8, x.W/8)
         self.layer3 = self.base_layers[6]  # size=(N, 256, x.H/16, x.W/16)
         self.layer4 = self.base_layers[7]  # size=(N, 512, x.H/32, x.W/32)
 
-        self.upsample = nn.Upsample(
-            scale_factor=2, mode="bilinear", align_corners=False
-        )
+        self.upsample = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
 
         self.layer0_1x1 = convrelu(64, 64, 1, 0)
         self.layer1_1x1 = convrelu(64, 64, 1, 0)

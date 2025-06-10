@@ -26,8 +26,7 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 preview = true
-line-length = 88
-indent-width = 4
+line-length = 99
 
 [tool.ruff.lint]
 ignore = ["E741"]

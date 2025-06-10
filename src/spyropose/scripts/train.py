@@ -64,9 +64,7 @@ def cli_train():
 
     for name in "recursion_depth", "crop_res":
         parser.link_arguments(f"model.{name}", f"data.{name}")
-    parser.link_arguments(
-        "debug", "trainer.enable_checkpointing", lambda debug: not debug
-    )
+    parser.link_arguments("debug", "trainer.enable_checkpointing", lambda debug: not debug)
 
     args = parser.parse_args()
 
@@ -90,16 +88,12 @@ def cli_train():
 
     # model
     model = SpyroPoseModel(
-        cfg=SpyroPoseModelConfig(
-            obj_cfg=obj_cfg, frame=frame, keypoints=keypoints, **args.model
-        )
+        cfg=SpyroPoseModelConfig(obj_cfg=obj_cfg, frame=frame, keypoints=keypoints, **args.model)
     )
 
     # dataset
     args.data.img_aug_cfg = ImgAugConfig(**args.data.img_aug_cfg)
-    data = BopInstanceDataset(
-        cfg=DatasetConfig(obj_cfg=obj_cfg, frame=frame, **args.data)
-    )
+    data = BopInstanceDataset(cfg=DatasetConfig(obj_cfg=obj_cfg, frame=frame, **args.data))
 
     # dataloader
     loader_kwargs = dict(

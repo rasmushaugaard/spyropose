@@ -56,9 +56,7 @@ dataset = helpers.get_dataset(dataset_name)(
     random_offset_rotation=False,
 )
 cfg = config[dataset_name]
-mesh = trimesh.load_mesh(
-    f"data/bop/{dataset_name}/{cfg.model_folder}/obj_{int(obj_name):06d}.ply"
-)
+mesh = trimesh.load_mesh(f"data/bop/{dataset_name}/{cfg.model_folder}/obj_{int(obj_name):06d}.ply")
 mesh.apply_translation(-mesh.bounding_sphere.primitive.center)
 renderer = SimpleRenderer(mesh, near=10.0, far=10_000.0, w=224)
 
@@ -75,9 +73,7 @@ while True:
         i = np.random.randint(len(dataset))
     print(f"\n-------- {i} ----------")
     img_data = {
-        k: (torch.from_numpy(v) if isinstance(v, np.ndarray) else torch.tensor(v)).to(
-            device
-        )[None]
+        k: (torch.from_numpy(v) if isinstance(v, np.ndarray) else torch.tensor(v)).to(device)[None]
         for k, v in dataset[i].items()
     }
     if args.box is not None:
@@ -106,9 +102,7 @@ while True:
 
     # quit()
     t_np = (
-        translation_grid.grid2pos(
-            grid=pos_grid, t_est=t_est, grid_frame=grid_frame, r=args.r + 1
-        )
+        translation_grid.grid2pos(grid=pos_grid, t_est=t_est, grid_frame=grid_frame, r=args.r + 1)
         .cpu()
         .numpy()[0]
     )
@@ -203,9 +197,7 @@ while True:
     K = img_data["K"][0].cpu().numpy()
     probs_sorted, sort_idx = torch.sort(probs, descending=True)
     max_renders = min(
-        torch.searchsorted(
-            probs_sorted.cumsum(dim=0), args.render_prob_target, right=True
-        ).item(),
+        torch.searchsorted(probs_sorted.cumsum(dim=0), args.render_prob_target, right=True).item(),
         args.max_renders,
     )
     idx = sort_idx[:max_renders].cpu().numpy()
@@ -213,9 +205,7 @@ while True:
     probs_sparse = probs.cpu().numpy()[idx]
     t_sparse = t_np[idx]  # (n, 3, 1)
     grid_sparse = grid_np_out[idx]
-    for p_, t_, R_ in tqdm(
-        zip(probs_sparse / probs_sparse.sum(), t_sparse, grid_sparse)
-    ):
+    for p_, t_, R_ in tqdm(zip(probs_sparse / probs_sparse.sum(), t_sparse, grid_sparse)):
         dist_render += p_ * renderer.render(K=K, R=R_, t=t_)
     ax3.imshow(overlay(img_gray, dist_render * blue_tint))
     ax3.axis("off")
@@ -262,10 +252,7 @@ while True:
         .numpy()
     )  # (3, 1)
     rlast = model.recursion_depth - 1
-    R = grid_np[
-        img_data[f"rot_idx_target_{rlast}"].cpu().numpy()[0, 0]
-        // (8 ** (rlast - args.r))
-    ]
+    R = grid_np[img_data[f"rot_idx_target_{rlast}"].cpu().numpy()[0, 0] // (8 ** (rlast - args.r))]
     ax4 = fig.add_subplot(gs[2, 1])
     ax4.imshow(
         overlay(img_gray, renderer.render(K=K, R=R, t=pos_target) * green_tint)

@@ -23,9 +23,7 @@ class MultiViewCropper:
         cams_t_world: np.ndarray,
         Ks: Sequence[np.ndarray],
     ):
-        cams_p_obj_est = (
-            cams_t_world[:, :3, :3] @ world_p_obj_est + cams_t_world[:, :3, 3:]
-        )
+        cams_p_obj_est = cams_t_world[:, :3, :3] @ world_p_obj_est + cams_t_world[:, :3, 3:]
         imgs, K_crops = [], []
         for img_id, cam_t_obj_est, K in zip(img_ids, cams_p_obj_est, Ks):
             img = self.rgb_loader(

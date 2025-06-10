@@ -3,20 +3,29 @@ import jsonargparse
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.linalg
+import trimesh
+from matplotlib.axes import Axes
 
-from ..data.dataset import BopInstanceDataset, DatasetConfig
+from ..data.data_cfg import DatasetConfig
+from ..data.dataset import BopInstanceDataset
 
 
-def main(cfg: DatasetConfig, pts_alpha=0.7, draw_frame=True, same_inst=False, seed=0):
-    dataset = BopInstanceDataset(cfg)
-    pts = dataset.mesh.vertices - dataset.obj_t_frame.flatten()
+def main(
+    data: DatasetConfig,
+    pts_alpha=0.7,
+    draw_frame=True,
+    same_inst=False,
+    seed=0,
+):
+    dataset = BopInstanceDataset(data)
+    pts = trimesh.load_mesh(data.obj.mesh_path).vertices - data.obj.frame.obj_t_frame
 
     np.random.seed(seed)
 
     axs = plt.subplots(4, 4, figsize=(10, 10))[1]
     i = np.random.randint(len(dataset))
     for ax in axs.reshape(-1):
-        ax: plt.Axes
+        ax: Axes
 
         i_ = i if same_inst else np.random.randint(len(dataset))
         d = dataset[i_]
@@ -28,7 +37,7 @@ def main(cfg: DatasetConfig, pts_alpha=0.7, draw_frame=True, same_inst=False, se
         vts = R @ pts.T + t
         p = K @ vts
         p = p[:2] / p[2:]
-        u, v = np.round(p).astype(int).clip(0, cfg.crop_res - 1)
+        u, v = np.round(p).astype(int).clip(0, data.obj.crop_res - 1)
         im[v, u] = (1 - pts_alpha) * im[v, u] + pts_alpha * np.array((1, 0, 0))
 
         if draw_frame:
@@ -40,13 +49,13 @@ def main(cfg: DatasetConfig, pts_alpha=0.7, draw_frame=True, same_inst=False, se
             R_ = R_ * sign.reshape(3, 1)
             assert np.allclose(K_ @ R_, K), np.linalg.norm(K_ @ R_ - K)
             im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-            cv2.drawFrameAxes(
+            cv2.drawFrameAxes(  # type: ignore
                 image=im,
                 cameraMatrix=K_,
                 rvec=cv2.Rodrigues(R_ @ R)[0],
                 tvec=R_ @ t,
-                length=dataset.frame_radius,
-                distCoeffs=None,
+                length=data.obj.frame.radius,
+                distCoeffs=np.zeros(5),
             )
             im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
 

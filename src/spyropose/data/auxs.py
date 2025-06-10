@@ -220,8 +220,8 @@ class KeyFilterAux(BopInstanceAux):
 def get_auxs(cfg: DatasetConfig):
     img_aug_cfg = cfg.img_aug_cfg
     random_crop_aux = RandomRotatedMaskCrop(
-        crop_res=cfg.crop_res,
-        padding_ratio=cfg.frame.padding_ratio,
+        crop_res=cfg.obj.crop_res,
+        padding_ratio=cfg.obj.frame.padding_ratio,
         random_rotation=img_aug_cfg.enabled,
     )
 
@@ -271,7 +271,7 @@ def get_auxs(cfg: DatasetConfig):
 
     auxs.append(
         NormalizeAux(
-            recursion_depth=cfg.recursion_depth,
+            recursion_depth=cfg.obj.recursion_depth,
             random_offset_rotation=img_aug_cfg.enabled,
         )
     )

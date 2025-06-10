@@ -12,7 +12,7 @@ class BopInstanceDataset(torch.utils.data.Dataset):
     def __init__(self, cfg: DatasetConfig):
         self.auxs = get_auxs(cfg)
         self.instances: list[dict] = []
-        obj_t_frame = np.asarray(cfg.frame.obj_t_frame).reshape(3, 1)
+        obj_t_frame = np.asarray(cfg.obj.frame.obj_t_frame).reshape(3, 1)
 
         for scene_id in tqdm(cfg.scene_ids, "loading crop info"):
             scene_folder = cfg.split_dir / f"{scene_id:06d}"
@@ -24,7 +24,7 @@ class BopInstanceDataset(torch.utils.data.Dataset):
                 img_info = scene_gt_info[img_id]
                 K = np.array(scene_camera[img_id]["cam_K"]).reshape((3, 3)).copy()
                 for pose_idx, pose in enumerate(poses):
-                    if pose["obj_id"] != cfg.obj_cfg.obj_id:
+                    if pose["obj_id"] != cfg.obj.obj_id:
                         continue
                     pose_info = img_info[pose_idx]
                     if pose_info["visib_fract"] < cfg.min_visib_fract:
@@ -44,14 +44,14 @@ class BopInstanceDataset(torch.utils.data.Dataset):
                             scene_id=scene_id,
                             img_id=int(img_id),
                             K=K,
-                            obj_id=cfg.obj_cfg.obj_id,
+                            obj_id=cfg.obj.obj_id,
                             pose_idx=pose_idx,
                             bbox_visib=bbox_visib,
                             bbox_obj=bbox_obj,
                             cam_R_obj=cam_R_obj,
                             cam_t_obj=cam_t_obj,
                             cam_t_frame=cam_t_frame,
-                            frame_radius=cfg.frame.radius,
+                            frame_radius=cfg.obj.frame.radius,
                         )
                     )
 

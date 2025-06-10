@@ -4,14 +4,48 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import trimesh
+
+from .. import utils
 from ..frame import SpyroFrame
 
 
-@dataclass
+def init_keypoints_from_mesh(
+    mesh: trimesh.Trimesh, frame: SpyroFrame, n_keypoints: int, tol=1.001
+):
+    frame_vertices = mesh.vertices - np.asarray(frame.obj_t_frame)
+    mask = np.linalg.norm(frame_vertices, axis=1) < frame.radius * tol
+    frame_vertices = frame_vertices[mask]
+    return utils.farthest_point_sampling(frame_vertices, n_keypoints)  # (n, 3)
+
+
 class ObjectConfig:
-    dataset: str
-    name: str
-    meshes_dir_name: str = "models"
+    def __init__(
+        self,
+        dataset: str,
+        obj: str,
+        frame: SpyroFrame | None = None,
+        crop_res: int = 224,
+        recursion_depth: int = 7,
+        keypoints: int | tuple[tuple[float, float, float], ...] = 16,
+    ):
+        self.dataset = dataset
+        self.obj = obj
+        self.crop_res = crop_res
+        self.recursion_depth = recursion_depth
+
+        if frame is not None:
+            self.frame = frame
+        else:
+            self.frame = SpyroFrame.from_mesh_bounding_sphere(self.mesh)
+
+        if isinstance(keypoints, int):
+            self.keypoints = init_keypoints_from_mesh(
+                mesh=self.mesh, frame=self.frame, n_keypoints=keypoints
+            )
+        else:
+            self.keypoints = np.asarray(keypoints)
 
     @property
     def root_dir(self):
@@ -21,7 +55,7 @@ class ObjectConfig:
 
     @property
     def meshes_dir(self):
-        return self.root_dir / self.meshes_dir_name
+        return self.root_dir / "models"
 
     @cached_property
     def mesh_info(self):
@@ -30,18 +64,18 @@ class ObjectConfig:
 
         try:
             # by index (bop format)
-            obj_id = int(self.name)
+            obj_id = int(self.obj)
             mesh_path = self.meshes_dir / f"obj_{obj_id:06d}.ply"
         except ValueError:
             # by name
-            mesh_path = self.meshes_dir / f"{self.name}"
+            mesh_path = self.meshes_dir / f"{self.obj}"
             mesh_name2id = dict()
             for idx_str, mesh_info in meshes_info.items():
                 if "mesh_name" in mesh_info:
                     mesh_name2id[mesh_info.get("mesh_name")] = int(idx_str)
             if mesh_path.name not in mesh_name2id:
                 raise RuntimeError(
-                    f"Object name '{self.name}' not found. "
+                    f"Object name '{self.obj}' not found. "
                     f"Available names: {list(mesh_name2id.keys())}"
                 )
             obj_id = mesh_name2id[mesh_path.name]
@@ -60,6 +94,10 @@ class ObjectConfig:
     def obj_id(self) -> int:
         return self.mesh_info["id"]
 
+    @cached_property
+    def mesh(self) -> trimesh.Trimesh:
+        return trimesh.load_mesh(self.mesh_path)
+
 
 @dataclass
 class ImgAugConfig:
@@ -73,21 +111,17 @@ class ImgAugConfig:
 
 @dataclass
 class DatasetConfig:
-    obj_cfg: ObjectConfig
-    frame: SpyroFrame
-
+    obj: ObjectConfig
     split_dir_name: str = "train_pbr"
-    crop_res: int = 224
     scene_id_range: tuple[int, int] | None = None
     img_aug_cfg: ImgAugConfig = field(default_factory=lambda: ImgAugConfig())
-    recursion_depth: int = 7
     min_visib_fract: float = 0.1
     min_px_count_visib: int = 1024
     img_ext: str = "jpg"
 
     @property
     def split_dir(self):
-        return self.obj_cfg.root_dir / self.split_dir_name
+        return self.obj.root_dir / self.split_dir_name
 
     @cached_property
     def scene_ids(self):

@@ -12,22 +12,19 @@ from torch import Tensor
 
 from . import rotation_grid, se3_grid, translation_grid, unet, utils
 from .data.data_cfg import ObjectConfig
-from .frame import SpyroFrame
 
 
 @dataclass
 class SpyroPoseModelConfig:
-    obj_cfg: ObjectConfig
-    frame: SpyroFrame
-    keypoints: list[tuple[float, float, float]]
+    obj: ObjectConfig
+
     embed_dim: int = 64
     n_layers: int = 3
     d_ff: int = 256
     val_top_k: int = 512
-    crop_res: int = 224
     vis_model: str = "unet18"
     position_scale: float = 1e-3
-    recursion_depth: int = 7
+
     # training
     lr: float = 1e-4
     weight_decay: float = 0.0
@@ -37,11 +34,11 @@ class SpyroPoseModelConfig:
 
     @property
     def n_keypoints(self):
-        return len(self.keypoints)
+        return len(self.obj.keypoints)
 
     @property
     def r_last(self):  # last recursion depth index
-        return self.recursion_depth - 1
+        return self.obj.recursion_depth - 1
 
 
 class SpyroPoseModel(pl.LightningModule):
@@ -53,7 +50,7 @@ class SpyroPoseModel(pl.LightningModule):
         # stores hyperparams for future instantiation
         self.save_hyperparameters(logger=False)
 
-        self.register_buffer("keypoints", torch.tensor(cfg.keypoints, dtype=torch.float))
+        self.register_buffer("keypoints", torch.tensor(cfg.obj.keypoints, dtype=torch.float).mT)
 
         self.point_dropout = nn.Dropout2d(cfg.point_dropout)
 
@@ -64,7 +61,7 @@ class SpyroPoseModel(pl.LightningModule):
         self.n_pts = cfg.n_keypoints
         self.out_of_img_embedding = nn.Parameter(torch.randn(cfg.embed_dim))
 
-        for r in range(cfg.recursion_depth):
+        for r in range(cfg.obj.recursion_depth):
             # separate heads for each recursion (could experiment with shared heads)
             self.add_module(f"vis_lin_{r}", nn.Conv2d(vis_channels, cfg.embed_dim, 1))
             layers = [
@@ -81,7 +78,7 @@ class SpyroPoseModel(pl.LightningModule):
             layers.append(nn.Linear(cfg.d_ff, 1))
             setattr(self, f"mlp_{r}", nn.Sequential(*layers))
 
-        for r in range(cfg.recursion_depth):
+        for r in range(cfg.obj.recursion_depth):
             # Currently, the full rotation grids are generated on cpu and moved to the model's
             # device. The rotations could be computed on demand to allow deeper pyramids.
             grid = rotation_grid.generate_rotation_grid(recursion_level=r)
@@ -239,7 +236,7 @@ class SpyroPoseModel(pl.LightningModule):
         # we cover all bins at recursion 0, log(sum_prob = 1) = 0
         log_sum_prob_expanded = torch.zeros(b, 1, device=device)
 
-        for r in range(self.cfg.recursion_depth):
+        for r in range(self.cfg.obj.recursion_depth):
             if r > 0:
                 # take top k bins
                 k = min(top_k, log_prob.shape[1])
@@ -323,7 +320,7 @@ class SpyroPoseModel(pl.LightningModule):
         K = self.opencv2torch(K=K, h=h, w=w)
 
         vis_feats = self.forward_vis(img)
-        # accumulate gradients at vis_feats_detached before backwarding them to vision model
+        # accumulate gradients at vis_feats_detached before backprop'ing them to vision model
         vis_feats_ = vis_feats.detach()
 
         if self.training:
@@ -346,7 +343,7 @@ class SpyroPoseModel(pl.LightningModule):
         log_q = torch.tensor([])
         lgts = torch.tensor([])
 
-        for r in range(self.cfg.recursion_depth):
+        for r in range(self.cfg.obj.recursion_depth):
             assert rot_idx.shape == (
                 b,
                 n,
@@ -448,10 +445,10 @@ class SpyroPoseModel(pl.LightningModule):
             t_target=batch["t"],
             # only provide the same modality / symmetry during training
             # assuming no knowledge about symmetries during training:
-            rot_idx_target_rlast=batch[f"rot_idx_target_{self.cfg.recursion_depth - 1}"][:, 0],
+            rot_idx_target_rlast=batch[f"rot_idx_target_{self.cfg.obj.recursion_depth - 1}"][:, 0],
             R_offset=batch["R_offset"],
         )
-        for r in range(self.cfg.recursion_depth):
+        for r in range(self.cfg.obj.recursion_depth):
             self.log(f"{log_prefix}/loss_{r}", losses[r], add_dataloader_idx=False)
         self.log(
             f"{log_prefix}/loss",
@@ -466,7 +463,7 @@ class SpyroPoseModel(pl.LightningModule):
         prefix = ["val", "test"][dataloader_idx]
         self.step(batch, prefix)
         ll = self.eval_step(batch=batch, pose_bs=10_000, top_k=self.cfg.val_top_k)
-        for r in range(self.cfg.recursion_depth):
+        for r in range(self.cfg.obj.recursion_depth):
             self.log(f"{prefix}/ll_{r}", ll[..., r].mean(), add_dataloader_idx=False)
 
     def forward_infer_batch(

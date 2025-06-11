@@ -11,12 +11,12 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from . import rotation_grid, se3_grid, translation_grid, unet, utils
-from .data.data_cfg import ObjectConfig
+from .obj import SpyroObjectConfig
 
 
 @dataclass
-class SpyroPoseModelConfig:
-    obj: ObjectConfig
+class SpyroModelConfig:
+    obj: SpyroObjectConfig
 
     embed_dim: int = 64
     n_layers: int = 3
@@ -44,7 +44,7 @@ class SpyroPoseModelConfig:
 class SpyroPoseModel(pl.LightningModule):
     keypoints: Tensor
 
-    def __init__(self, cfg: SpyroPoseModelConfig):
+    def __init__(self, cfg: SpyroModelConfig):
         super().__init__()
         self.cfg = cfg
         # stores hyperparams for future instantiation
@@ -211,10 +211,10 @@ class SpyroPoseModel(pl.LightningModule):
         assert world_t_obj_est.shape == (b, 3, 1)
         assert pos_grid_frame.shape == (b, 3, 3)
         if world_R_cam is None or world_t_cam is None:
-            world_R_cam = torch.eye(3, device=device, dtype=torch.float).view(1, 1, 3, 3)
-            world_t_cam = torch.zeros(1, 1, 3, 1, device=device, dtype=torch.float)
-        assert world_R_cam.shape == (b, c, 3, 3)
-        assert world_t_cam.shape == (b, c, 3, 1)
+            world_R_cam = torch.eye(3, device=device, dtype=torch.float).repeat(b, 1, 1, 1)
+            world_t_cam = torch.zeros(b, 1, 3, 1, device=device, dtype=torch.float)
+        assert world_R_cam.shape == (b, c, 3, 3), world_R_cam.shape
+        assert world_t_cam.shape == (b, c, 3, 1), world_t_cam.shape
         bc = b * c
 
         cam_R_world = world_R_cam.mT
@@ -459,8 +459,8 @@ class SpyroPoseModel(pl.LightningModule):
     def training_step(self, batch, *_):
         self.step(batch, "train")
 
-    def validation_step(self, batch, batch_idx, dataloader_idx=1):
-        prefix = ["val", "test"][dataloader_idx]
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
+        prefix = f"val_{dataloader_idx}"
         self.step(batch, prefix)
         ll = self.eval_step(batch=batch, pose_bs=10_000, top_k=self.cfg.val_top_k)
         for r in range(self.cfg.obj.recursion_depth):

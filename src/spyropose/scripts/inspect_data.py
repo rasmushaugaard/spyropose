@@ -6,18 +6,18 @@ import scipy.linalg
 import trimesh
 from matplotlib.axes import Axes
 
-from ..data.data_cfg import DatasetConfig
-from ..data.dataset import BopInstanceDataset
+from ..data.cfg import SpyroDataConfig
+from ..data.dataset import SpyroDataset
 
 
 def main(
-    data: DatasetConfig,
+    data: SpyroDataConfig,
     pts_alpha=0.7,
     draw_frame=True,
     same_inst=False,
     seed=0,
 ):
-    dataset = BopInstanceDataset(data)
+    dataset = SpyroDataset(data)
     pts = trimesh.load_mesh(data.obj.mesh_path).vertices - data.obj.frame.obj_t_frame
 
     np.random.seed(seed)

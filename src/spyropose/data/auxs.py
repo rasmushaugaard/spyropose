@@ -7,7 +7,7 @@ from scipy.spatial.transform import Rotation
 
 from .. import rotation_grid, translation_grid, utils
 from . import tfms
-from .data_cfg import DatasetConfig
+from .cfg import SpyroDataConfig
 
 
 class BopInstanceAux:
@@ -15,7 +15,7 @@ class BopInstanceAux:
 
 
 class RgbLoader(BopInstanceAux):
-    def __init__(self, cfg: DatasetConfig, copy=False):
+    def __init__(self, cfg: SpyroDataConfig, copy=False):
         self.cfg = cfg
         self.copy = copy
 
@@ -217,8 +217,8 @@ class KeyFilterAux(BopInstanceAux):
         return {k: v for k, v in inst.items() if k in self.keys}
 
 
-def get_auxs(cfg: DatasetConfig):
-    img_aug_cfg = cfg.img_aug_cfg
+def get_auxs(cfg: SpyroDataConfig):
+    img_aug_cfg = cfg.img_aug
     random_crop_aux = RandomRotatedMaskCrop(
         crop_res=cfg.obj.crop_res,
         padding_ratio=cfg.obj.frame.padding_ratio,

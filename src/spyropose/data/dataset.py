@@ -5,11 +5,11 @@ import torch.utils.data
 from tqdm import tqdm
 
 from .auxs import get_auxs
-from .data_cfg import DatasetConfig
+from .cfg import SpyroDataConfig
 
 
-class BopInstanceDataset(torch.utils.data.Dataset):
-    def __init__(self, cfg: DatasetConfig):
+class SpyroDataset(torch.utils.data.Dataset):
+    def __init__(self, cfg: SpyroDataConfig):
         self.auxs = get_auxs(cfg)
         self.instances: list[dict] = []
         obj_t_frame = np.asarray(cfg.obj.frame.obj_t_frame).reshape(3, 1)

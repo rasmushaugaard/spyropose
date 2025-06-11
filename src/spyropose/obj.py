@@ -1,5 +1,4 @@
 import json
-from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 from typing import Any
@@ -7,8 +6,8 @@ from typing import Any
 import numpy as np
 import trimesh
 
-from .. import utils
-from ..frame import SpyroFrame
+from spyropose import utils
+from spyropose.frame import SpyroFrame
 
 
 def init_keypoints_from_mesh(
@@ -20,7 +19,7 @@ def init_keypoints_from_mesh(
     return utils.farthest_point_sampling(frame_vertices, n_keypoints)  # (n, 3)
 
 
-class ObjectConfig:
+class SpyroObjectConfig:
     def __init__(
         self,
         dataset: str,
@@ -98,34 +97,6 @@ class ObjectConfig:
     def mesh(self) -> trimesh.Trimesh:
         return trimesh.load_mesh(self.mesh_path)
 
-
-@dataclass
-class ImgAugConfig:
-    enabled: bool = True
-    cj_p: float = 1.0
-    cj_hue: float = 0.1
-    cj_brightness: float = 0.5
-    cj_contrast: float = 0.5
-    cj_saturation: float = 0.5
-
-
-@dataclass
-class DatasetConfig:
-    obj: ObjectConfig
-    split_dir_name: str = "train_pbr"
-    scene_id_range: tuple[int, int] | None = None
-    img_aug_cfg: ImgAugConfig = field(default_factory=lambda: ImgAugConfig())
-    min_visib_fract: float = 0.1
-    min_px_count_visib: int = 1024
-    img_ext: str = "jpg"
-
-    @property
-    def split_dir(self):
-        return self.obj.root_dir / self.split_dir_name
-
     @cached_property
-    def scene_ids(self):
-        if self.scene_id_range is None:
-            return tuple(sorted([int(p.name) for p in self.split_dir.glob("*")]))
-        else:
-            return tuple(range(*self.scene_id_range))
+    def mesh_frame(self) -> trimesh.Trimesh:
+        return self.frame.get_mesh_in_frame(self.mesh)

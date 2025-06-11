@@ -13,10 +13,18 @@ from ..data.renderer import SimpleRenderer
 from ..model import SpyroPoseModel
 
 
+def model_from_path(path: Path, device: str):
+    return SpyroPoseModel.load_from_checkpoint(path, device)
+
+
 def main():
     parser = jsonargparse.ArgumentParser()
-    parser.add_argument("--model-path", type=Path)
+    parser.add_class_arguments(SpyroPoseModel, "model", default=dict(class_path=model_from_path))
     parser.add_class_arguments(SpyroDataConfig, "data", skip={"obj"})
+
+    parser.link_arguments("--")
+    parser.link_arguments("model.obj", "data.obj", apply_on="instantiate")
+
     parser.add_argument("--device")
 
     parser.add_argument("--n", type=int, default=2_000_000)

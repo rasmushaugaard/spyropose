@@ -62,7 +62,7 @@ Check out initial commit.
 - [x] save all relevant hyperparameters to make inference easier with the model. model name, frame config, etc.
 - [x] log hyper parameters
 - [x] reintroduce validation set
-- [ ] make sure eval_vis is working
+- [x] make sure eval_vis is working
 - [ ] add script to train simple detector
 - [ ] make sure inference scripts is running
 - [ ] revisit readme

@@ -18,6 +18,7 @@ dependencies = [
     "jsonargparse>=4.40.0",
     "pyqt6>=6.9.0",
     "wandb>=0.19.11",
+    "scipy-stubs>=1.15.3.0",
 ]
 
 [build-system]

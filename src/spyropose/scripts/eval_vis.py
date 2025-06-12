@@ -1,71 +1,59 @@
 from pathlib import Path
 
 import jsonargparse
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from matplotlib import pyplot as plt
 from tqdm import tqdm
 
 from .. import se3_grid, translation_grid, utils, vis
-from ..data.cfg import SpyroDataConfig
+from ..data.cfg import ImgAugConfig, SpyroDataConfig
 from ..data.dataset import SpyroDataset
 from ..data.renderer import SimpleRenderer
 from ..model import SpyroPoseModel
 
 
-def model_from_path(path: Path, device: str):
-    return SpyroPoseModel.load_from_checkpoint(path, device)
+def if_none(a, b):
+    return b if a is None else a
 
 
 def main():
     parser = jsonargparse.ArgumentParser()
-    parser.add_class_arguments(SpyroPoseModel, "model", default=dict(class_path=model_from_path))
-    parser.add_class_arguments(SpyroDataConfig, "data", skip={"obj"})
-
-    parser.link_arguments("--")
-    parser.link_arguments("model.obj", "data.obj", apply_on="instantiate")
-
-    parser.add_argument("--device")
-
-    parser.add_argument("--n", type=int, default=2_000_000)
-    parser.add_argument("--i", type=int, nargs="*")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--topk", type=int, default=2048)
-    parser.add_argument("--r", type=int, required=True)
-    parser.add_argument("--r-grid", type=int)
-    parser.add_argument("--timer", action="store_true")
-    parser.add_argument("--scene-id", type=int, default=50)
-    parser.add_argument("--render-prob-target", type=float, default=0.95)
-    parser.add_argument("--max-renders", type=int, default=1_000)
-    parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--split", default="valid")
-    parser.add_argument("--box", type=int, nargs=4)
-    parser.add_argument("--long-offset", type=float, default=0.0)
-    parser.add_argument("--lat-offset", type=float, default=0.0)
-    parser.add_argument("--regular-grid", action="store_true")
-    parser.add_argument("--scene-rng-train", type=int, nargs=2, default=(0, 49))
-    parser.add_argument("--scene-rng-valid", type=int, nargs=2, default=(49, 50))
+    parser.add_argument("--model_path", type=Path, required=True)
+    parser.add_class_arguments(
+        SpyroDataConfig, "data", skip={"obj"}, default={"img_aug.enabled": False}
+    )
+    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--r", type=int)
+    parser.add_argument("--r_grid", type=int)
+    parser.add_argument("--top_k", type=int)
+    parser.add_argument("--i", type=int, nargs="+")
     parser.add_argument("--gamma", type=float, default=1.0)
-    parser.add_argument("--show-x", action="store_true")
+    parser.add_argument("--show_x", action="store_true")
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--render_prob_target", type=float, default=0.95)
+    parser.add_argument("--max_renders", type=int, default=5_000)
 
-    cfg = parser.parse_args()
-    device = cfg.device
-
-    model = SpyroPoseModel.load_from_checkpoint(cfg.model_path, device).eval()
+    args = parser.parse_args()
+    device = args.device
+    model = SpyroPoseModel.load_from_checkpoint(args.model_path, device).eval()
     model.freeze()
+    r = if_none(args.r, model.cfg.r_last)
+    model.cfg.obj.recursion_depth = r + 1
 
-    cfg.data.obj = model.cfg.obj
-    cfg = parser.instantiate_classes(cfg)
-    data = SpyroDataset(cfg.data)
+    r_grid = if_none(args.r_grid, r)  # TODO: why both r and r_grid?
+    top_k = if_none(args.top_k, model.cfg.val_top_k)
+    grid_np = getattr(model, f"grid_{r_grid}").cpu().numpy()
+
+    args.data.img_aug = ImgAugConfig(**args.data.img_aug)
+    args.data = SpyroDataConfig(obj=model.cfg.obj, **args.data)
+    dataset = SpyroDataset(args.data)
 
     renderer = SimpleRenderer(model.cfg.obj.mesh_frame, near=10.0, far=10_000.0, w=224)
 
-    r_grid = cfg.r if cfg.r_grid is None else cfg.r_grid
-    grid_np = getattr(model, f"grid_{r_grid}").cpu().numpy()
+    np.random.seed(args.seed)
 
-    np.random.seed(cfg.seed)
-
-    i_queue = cfg.i
+    i_queue = args.i
     while True:
         if i_queue:
             i = i_queue.pop(0)
@@ -78,35 +66,26 @@ def main():
             ]
             for k, v in dataset[i].items()
         }
-        if cfg.box is not None:
-            l, t, r, b = cfg.box
-            img_data["img"][:, :, t:b, l:r] = 0
 
-        assert cfg.topk is not None
-        for _ in range(2 if cfg.timer else 1):
-            with utils.timer("forward"):
-                out = model.forward_infer(
-                    img=img_data["img"][None],
-                    K=img_data["K"][None],
-                    world_t_obj_est=img_data["t_est"],
-                    pos_grid_frame=img_data["t_grid_frame"],
-                    pose_bs=10_000,
-                    top_k=cfg.topk,
-                )
-                out["log_probs"][-1].view(-1)[-1].item()
-        probs = out["log_probs"][cfg.r][0].exp()
-        print(f"sum prob at r={cfg.r}: {probs.sum():.3f}")
-        idx = out["rot_idxs"][cfg.r][0]
-        pos_grid = out["pos_idxs"][cfg.r]
+        out = model.forward_infer(
+            img=img_data["img"][None],
+            K=img_data["K"][None],
+            world_t_obj_est=img_data["t_est"],
+            pos_grid_frame=img_data["t_grid_frame"],
+            pose_bs=10_000,
+            top_k=top_k,
+        )
+        out["log_probs"][-1].view(-1)[-1].item()
+        probs = out["log_probs"][r][0].exp()
+        print(f"sum prob at {r=}: {probs.sum():.3f}")
+        idx = out["rot_idxs"][r][0]
+        pos_grid = out["pos_idxs"][r]
         t_est = img_data["t_est"]
         grid_frame = img_data["t_grid_frame"]
         print(f"det(grid_frame): {torch.linalg.det(grid_frame * 1e-3).item():.2e}")
 
-        # quit()
         t_np = (
-            translation_grid.grid2pos(
-                grid=pos_grid, t_est=t_est, grid_frame=grid_frame, r=cfg.r + 1
-            )
+            translation_grid.grid2pos(grid=pos_grid, t_est=t_est, grid_frame=grid_frame, r=r + 1)
             .cpu()
             .numpy()[0]
         )
@@ -114,7 +93,7 @@ def main():
         grid_np_out = grid_np[idx.cpu().numpy()]
         with utils.timer("pyramid search"):
             match_idx, ll = se3_grid.locate_poses_in_pyramid(
-                q_rot_idx_rlast=img_data[f"rot_idx_target_{model.recursion_depth - 1}"],
+                q_rot_idx_rlast=img_data[f"rot_idx_target_{r}"],
                 q_pos=img_data["t"].unsqueeze(1),
                 t_est=t_est,
                 pos_grid_frame=grid_frame,
@@ -138,19 +117,14 @@ def main():
 
         ax1 = fig.add_subplot(gs[0, :], projection="mollweide")
 
-        rot_vis = vis.visualize_so3_probabilities(
-            grid_np_out,
-            probs.cpu(),
-            rotations_gt=img_data["R"][:1].cpu(),
-            fig=fig,
+        so3_vis_res = vis.visualize_so3_probabilities(
+            rotations=grid_np_out,
+            probabilities=probs.cpu().numpy(),
+            rotations_gt=img_data["R"][:1].cpu().numpy(),
             ax=ax1,
             display_threshold_probability=0,
-            visualize_prob_by_alpha=True,
-            show_color_wheel=False,
-            s=7 * 1024 / 4**cfg.r,
-            long_offset=cfg.long_offset,
-            lat_offset=cfg.lat_offset,
-            gamma=cfg.gamma,
+            s=7 * 1024 / 4**r,
+            gamma=args.gamma,
         )
 
         ax2 = fig.add_subplot(gs[1, 1])
@@ -158,23 +132,18 @@ def main():
         ax2.set_title("x")
         ax2.axis("off")
 
-        if cfg.show_x:
-            set_marker_rot = rot_vis["show_marker"](marker="X", s=400)
-            scatter_rot_idx = np.argwhere(rot_vis["rotation_mask"])[0]
-
-            last_idx = None
+        if args.show_x:
+            set_marker_rot = so3_vis_res.show_marker(marker="X", s=400)
+            scatter_rot_idx = np.argwhere(so3_vis_res.rotation_mask).flatten()
 
             def cb(event):
-                global last_idx
                 if event.inaxes is not ax1:
                     return
                 x, y = event.xdata, event.ydata
                 if x is None or y is None:
                     return
-                idx = rot_vis["scatter_tree"].query((x, y))[1]
+                idx = so3_vis_res.scatter_tree.query((x, y))[1]
                 idx = scatter_rot_idx[idx]
-                if idx == last_idx:
-                    return
                 R = grid_np_out[idx]
                 t = t_np[idx]
                 set_marker_rot(R)
@@ -202,9 +171,9 @@ def main():
         probs_sorted, sort_idx = torch.sort(probs, descending=True)
         max_renders = min(
             torch.searchsorted(
-                probs_sorted.cumsum(dim=0), cfg.render_prob_target, right=True
+                probs_sorted.cumsum(dim=0), args.render_prob_target, right=True
             ).item(),
-            cfg.max_renders,
+            args.max_renders,
         )
         idx = sort_idx[:max_renders].cpu().numpy()
         dist_render = np.zeros((224, 224, 4))
@@ -245,22 +214,20 @@ def main():
             pos=img_data["t"],
             t_est=img_data["t_est"],
             grid_frame=img_data["t_grid_frame"],
-            r=cfg.r + 1,
+            r=r + 1,
         )
         pos_target = (
             translation_grid.grid2pos(
                 grid=pos_idx_target_r,
                 t_est=img_data["t_est"],
                 grid_frame=img_data["t_grid_frame"],
-                r=cfg.r + 1,
+                r=r + 1,
             )[0, 0]
             .cpu()
             .numpy()
         )  # (3, 1)
-        rlast = model.recursion_depth - 1
-        R = grid_np[
-            img_data[f"rot_idx_target_{rlast}"].cpu().numpy()[0, 0] // (8 ** (rlast - cfg.r))
-        ]
+
+        R = grid_np[img_data[f"rot_idx_target_{r}"].cpu().numpy()[0, 0]]
         ax4 = fig.add_subplot(gs[2, 1])
         ax4.imshow(
             overlay(img_gray, renderer.render(K=K, R=R, t=pos_target) * green_tint)
@@ -269,3 +236,7 @@ def main():
         ax4.axis("off")
 
         plt.show()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,10 +1,22 @@
-from typing import Optional
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation
+
+
+@dataclass
+class SO3VisResult:
+    ax: Axes
+    canonical_rotation: np.ndarray
+    show_marker: Callable
+    scatter_tree: KDTree
+    rotation_mask: np.ndarray
+    colors: np.ndarray
+    alpha: np.ndarray
 
 
 def visualize_so3_probabilities(
@@ -16,7 +28,6 @@ def visualize_so3_probabilities(
     rot_offset=np.eye(3),
     canonical_rotation=Rotation.from_euler("xyz", [0.4] * 3).as_matrix(),
     scatter_alpha=1.0,
-    scatterpoint_scaling=4e3,
     cmap=plt.get_cmap("hsv"),
     s=5,
     long_offset=0.0,
@@ -27,7 +38,7 @@ def visualize_so3_probabilities(
     gamma=0.5,
     c=None,
     scatter_zorder=10,
-):
+) -> SO3VisResult:
     if rotations_gt is None:
         rotations_gt = np.empty((0, 3, 3))
 
@@ -70,7 +81,7 @@ def visualize_so3_probabilities(
             long, lat, tilt = get_vis_rot(rotation)
             color = cmap(0.5 + tilt / 2 / np.pi)
             scatter.set_offsets((long, lat))
-            scatter.set_edgecolor(color)
+            scatter.set_edgecolor(color)  # type: ignore
 
         set_rotation(rotation)
         return set_rotation
@@ -102,7 +113,7 @@ def visualize_so3_probabilities(
         zorder=scatter_zorder,
     )
 
-    return dict(
+    return SO3VisResult(
         ax=ax,
         canonical_rotation=canonical_rotation,
         show_marker=show_marker,

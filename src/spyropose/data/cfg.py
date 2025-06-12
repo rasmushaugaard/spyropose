@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from functools import cached_property
 
+import albumentations as A
+
 from ..obj import SpyroObjectConfig
 
 
@@ -12,6 +14,14 @@ class ImgAugConfig:
     cj_brightness: float = 0.5
     cj_contrast: float = 0.5
     cj_saturation: float = 0.5
+
+    def color_jitter_aug(self):
+        return A.ColorJitter(
+            brightness=self.cj_brightness,
+            contrast=self.cj_contrast,
+            saturation=self.cj_saturation,
+            hue=self.cj_hue,
+        )
 
 
 @dataclass

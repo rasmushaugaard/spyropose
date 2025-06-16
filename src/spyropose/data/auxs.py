@@ -65,8 +65,8 @@ class RandomRotatedMaskCrop(BopInstanceAux):
 
 
 def calculate_crop_matrix(
-    t_frame_est, crop_res, frame_radius, padding_ratio, K, random_rotation, h, w
-):
+    t_frame_est, crop_res, frame_radius, padding_ratio, K, random_rotation=False, h=None, w=None
+) -> dict:
     # get the intrinsics of the crop around the estimated position
     #   scale: f * obj_diameter * pad_multiplier / z = res
     f = crop_res / (frame_radius * 2 * padding_ratio) * t_frame_est[2, 0]
@@ -103,7 +103,10 @@ def calculate_crop_matrix(
     corners = corners[:2] / corners[2:]
     left, top = np.floor(corners.min(axis=1)).astype(int)
     right, bottom = np.ceil(corners.max(axis=1)).astype(int)
-    AABB_crop = max(0, left), max(0, top), min(right, w - 1), min(bottom, h - 1)
+    if h is None or w is None:
+        AABB_crop = None
+    else:
+        AABB_crop = max(0, left), max(0, top), min(right, w - 1), min(bottom, h - 1)
 
     return dict(
         M_crop=M_crop.astype(np.float32),

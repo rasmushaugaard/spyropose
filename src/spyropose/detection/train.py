@@ -8,8 +8,8 @@ from pytorch_lightning.loggers.wandb import WandbLogger
 from .. import utils
 from ..data.cfg import SpyroDataConfig
 from ..obj import SpyroObjectConfig
-from .det_data import SpyroDetectionDataset
-from .det_model import SpyroDetector
+from .data import SpyroDetectionDataset
+from .model import SpyroDetector
 
 
 def collate_fn(batch):

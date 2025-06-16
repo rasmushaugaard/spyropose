@@ -12,7 +12,7 @@ In a project, add spyropose as a dependency
 uv add git+REPO_URL
 ```
 
-## Training
+## Training Spyro
 
 Spyropose trains a model per object.
 
@@ -40,6 +40,15 @@ model()
 # TODO
 ```
 
+## Detector
+
+```bash
+# inspect detection data
+uv run -m spyropose.detection.data --obj.dataset=DATASET --obj.obj=OBJECT --data_train.scene_rng="[0,19]" --data_valid.scene_rng="[19,20]"
+# to train a simple detector
+uv run -m spyropose.detection.train  # similar args as above
+```
+
 ## Reproducing results from paper
 
 Check out initial commit.
@@ -63,6 +72,6 @@ Check out initial commit.
 - [x] log hyper parameters
 - [x] reintroduce validation set
 - [x] make sure eval_vis is working
-- [ ] add script to train simple detector
+- [x] add script to train simple detector
 - [ ] make sure inference scripts is running
 - [ ] revisit readme

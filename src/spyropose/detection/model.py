@@ -1,7 +1,11 @@
+from pathlib import Path
+
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torchvision.models.detection
 
+from .. import utils
 from ..obj import SpyroObjectConfig
 
 
@@ -46,3 +50,23 @@ class SpyroDetector(pl.LightningModule):
             return [optimizer], [dict(scheduler=scheduler, interval="step")]
         else:
             return optimizer
+
+    def estimate_position_from_bbox(self, box: np.ndarray, K: np.ndarray) -> np.ndarray:
+        # Depth from scale
+        # Generally: img_size = f * 3d_size / depth
+        # in this case:
+        #    box_size = f * obj_diameter / depth (this is how the boxes are generated in ./data)
+        #    <=> depth = f * obj_diameter / box_size
+        lt, rb = box.reshape(2, 2)
+        box_size = np.abs(rb - lt).mean()
+        f = np.abs(np.linalg.det(K[:2, :2])) ** 0.5
+        depth = f * self.obj.frame.radius * 2 / box_size
+
+        bbox_center = box.reshape(2, 2).mean(axis=0)
+        p = np.linalg.inv(K) @ (*bbox_center, 1)
+        p = p / p[2] * depth
+        return p
+
+    @classmethod
+    def load_eval_freeze(cls, path: str | Path, device):
+        return utils.load_eval_freeze(cls, path, device)

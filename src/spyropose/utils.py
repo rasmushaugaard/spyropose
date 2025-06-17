@@ -1,15 +1,17 @@
 import time
 from collections.abc import Sequence
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Type, TypeVar
 
 import numpy as np
+import pytorch_lightning as pl
 import torch
 import torch.nn
 import trimesh
 from scipy.spatial.transform import Rotation
 from scipy.stats import chi2
-
-Tensor = torch.Tensor
+from torch import Tensor
 
 
 def get_random_rotations(n):
@@ -160,3 +162,23 @@ def to_tuples(seq):
     if isinstance(seq, Sequence):
         return tuple((to_tuples(el) for el in seq))
     return seq
+
+
+ModelType = TypeVar("ModelType", bound=pl.LightningModule)
+
+
+def load_eval_freeze(cls: Type[ModelType], path: str | Path, device):
+    path = Path(path)
+    if path.suffix != ".ckpt":
+        path = path / "checkpoints"
+        model_fps = list((path).glob("*.ckpt"))
+        assert len(model_fps) == 1, (
+            f"One and only one model should be in {path}."
+            f" Found {model_fps}."
+            f" If there are multiple checkpoints, specify the full path to the desired checkpoint."
+        )
+        path = model_fps[0]
+    model = cls.load_from_checkpoint(path, device)
+    model.eval()
+    model.freeze()
+    return model

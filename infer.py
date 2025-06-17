@@ -17,28 +17,23 @@ from spyropose.vis import visualize_so3_probabilities
 def infer(
     device="cuda:0",
     show_det=False,
-    show_crop=False,
     recursion_level: int | None = None,
     top_k: int = 512,
+    scene_id=19,
+    img_id=0,
 ):
-    # load models
-    detector = SpyroDetector.load_from_checkpoint(
-        "data/spyropose_detector/2kewoepx/checkpoints/epoch=42-step=20000.ckpt",
-        device,
-    ).eval()
-    detector.freeze()
-
-    spyro = SpyroPoseModel.load_from_checkpoint(
-        # "data/spyropose/0qkibyrp/checkpoints/epoch=15-step=50000.ckpt",
-        "data/spyropose/dwq4lb0a/checkpoints/epoch=27-step=100000.ckpt",
-        device,
-    ).eval()
-    spyro.freeze()
+    # load models in eval mode and freeze weights
+    detector = SpyroDetector.load_eval_freeze("data/spyropose_detector/2kewoepx", device)
+    spyro = SpyroPoseModel.load_eval_freeze("data/spyropose/dwq4lb0a", device)
 
     # load data
-    with open("data/bop/lego_foo/train_pbr/000019/scene_camera.json") as f:
-        K = np.asarray(json.load(f)["0"]["cam_K"]).reshape(3, 3)
-    img = cv2.imread("data/bop/lego_foo/train_pbr/000019/rgb/000000.jpg", cv2.IMREAD_COLOR_RGB)
+    with open(f"data/bop/lego_foo/train_pbr/{scene_id:06d}/scene_camera.json") as f:
+        K = np.asarray(json.load(f)[str(img_id)]["cam_K"], dtype=np.float32).reshape(3, 3)
+    img = cv2.imread(
+        f"data/bop/lego_foo/train_pbr/{scene_id:06d}/rgb/{img_id:06d}.jpg", cv2.IMREAD_COLOR_RGB
+    )
+
+    # normalize img and run detection
     x = img.astype(np.float32) / 255.0  # (h, w, 3) [0, 1]
     x = einops.rearrange(x, "h w d -> 1 d h w")
     x = torch.from_numpy(x).to(device)
@@ -56,20 +51,14 @@ def infer(
         cv2.waitKey()
 
     for idx in torch.argsort(det_out["scores"], descending=True):
-        box = det_out["boxes"][idx]
-        # - estimate position from bbox
-        lt, rb = box.reshape(2, 2)
-        wh = (rb - lt).abs()
-        f = abs(np.linalg.det(K[:2, :2])) ** 0.5
-        z = 2 * detector.obj.frame.radius * f / wh.mean().item()
-        p = np.linalg.inv(K) @ (*box.reshape(2, 2).mean(dim=0).tolist(), 1)
-        p = p / p[2] * z
-        # - estimate crop
+        box = det_out["boxes"][idx].cpu().numpy()
+        cam_t_spyro_frame = detector.estimate_position_from_bbox(box=box, K=K)
+        # estimate crop
         crop_res = spyro.cfg.obj.crop_res
         crop_matrices = calculate_crop_matrix(
             K=K,
-            t_frame_est=p.reshape(3, 1),
-            crop_res=spyro.cfg.obj.crop_res,
+            t_frame_est=cam_t_spyro_frame.reshape(3, 1),
+            crop_res=crop_res,
             frame_radius=spyro.cfg.obj.frame.radius,
             padding_ratio=spyro.cfg.obj.frame.padding_ratio,
         )
@@ -77,24 +66,24 @@ def infer(
         M_crop: np.ndarray = crop_matrices["M_crop"]
         crop = cv2.warpAffine(img, M_crop[:2], (crop_res, crop_res))
 
-        if show_crop:
-            cv2.imshow("", cv2.cvtColor(crop, cv2.COLOR_RGB2BGR))
-            cv2.waitKey()
-
         x = crop.astype(np.float32) / 255.0
         x = einops.rearrange(x, "h w d -> 1 1 d h w")
         x = torch.from_numpy(x).to(device)
 
+        # TODO: default in forward infer (regular if multiview)
         pos_grid_frame = get_translation_grid_frame(
             frame_radius=spyro.cfg.obj.frame.radius,
-            t_frame_est=p.reshape(3, 1),
+            t_frame_est=cam_t_spyro_frame.reshape(3, 1),
             random_rotation=False,
         )
 
         spyro_out = spyro.forward_infer(
             img=x,
             K=torch.from_numpy(einops.rearrange(K_crop, "n m -> 1 1 n m")).float().to(device),
-            world_t_obj_est=torch.from_numpy(p).reshape(1, 3, 1).float().to(device),
+            world_t_obj_est=torch.from_numpy(cam_t_spyro_frame)
+            .reshape(1, 3, 1)
+            .float()
+            .to(device),
             top_k=top_k,
             pos_grid_frame=torch.from_numpy(pos_grid_frame)[None].to(device),
         )

@@ -23,12 +23,15 @@ def infer(
 ):
     # load models
     detector = SpyroDetector.load_from_checkpoint(
-        "data/spyropose_detector/2kewoepx/checkpoints/epoch=42-step=20000.ckpt", device
+        "data/spyropose_detector/2kewoepx/checkpoints/epoch=42-step=20000.ckpt",
+        device,
     ).eval()
     detector.freeze()
 
     spyro = SpyroPoseModel.load_from_checkpoint(
-        "data/spyropose/0qkibyrp/checkpoints/epoch=15-step=50000.ckpt", device
+        # "data/spyropose/0qkibyrp/checkpoints/epoch=15-step=50000.ckpt",
+        "data/spyropose/dwq4lb0a/checkpoints/epoch=27-step=100000.ckpt",
+        device,
     ).eval()
     spyro.freeze()
 
@@ -39,11 +42,11 @@ def infer(
     x = img.astype(np.float32) / 255.0  # (h, w, 3) [0, 1]
     x = einops.rearrange(x, "h w d -> 1 d h w")
     x = torch.from_numpy(x).to(device)
-    out = detector.model(x)[0]
+    det_out = detector.model(x)[0]
 
     if show_det:
         img_det = img.copy()
-        for box, score in zip(out["boxes"], out["scores"]):
+        for box, score in zip(det_out["boxes"], det_out["scores"]):
             l, t, r, b = box.round().long().tolist()
             cv2.rectangle(img_det, (l, t), (r, b), (0, 0, 255))
             cv2.putText(
@@ -52,65 +55,64 @@ def infer(
         cv2.imshow("", cv2.cvtColor(img_det, cv2.COLOR_RGB2BGR))
         cv2.waitKey()
 
-    # pass most confident detection to spyropose
-    idx = out["scores"].argmax()
-    box = out["boxes"][idx]
-    # - estimate position from bbox
-    lt, rb = box.reshape(2, 2)
-    wh = (rb - lt).abs()
-    f = abs(np.linalg.det(K[:2, :2])) ** 0.5
-    z = 2 * detector.obj.frame.radius * f / wh.mean().item()
-    p = np.linalg.inv(K) @ (*box.reshape(2, 2).mean(dim=0).tolist(), 1)
-    p = p / p[2] * z
-    # - estimate crop
-    crop_res = spyro.cfg.obj.crop_res
-    crop_matrices = calculate_crop_matrix(
-        K=K,
-        t_frame_est=p.reshape(3, 1),
-        crop_res=spyro.cfg.obj.crop_res,
-        frame_radius=spyro.cfg.obj.frame.radius,
-        padding_ratio=spyro.cfg.obj.frame.padding_ratio,
-    )
-    K_crop: np.ndarray = crop_matrices["K_crop"]
-    M_crop: np.ndarray = crop_matrices["M_crop"]
-    crop = cv2.warpAffine(img, M_crop[:2], (crop_res, crop_res))
+    for idx in torch.argsort(det_out["scores"], descending=True):
+        box = det_out["boxes"][idx]
+        # - estimate position from bbox
+        lt, rb = box.reshape(2, 2)
+        wh = (rb - lt).abs()
+        f = abs(np.linalg.det(K[:2, :2])) ** 0.5
+        z = 2 * detector.obj.frame.radius * f / wh.mean().item()
+        p = np.linalg.inv(K) @ (*box.reshape(2, 2).mean(dim=0).tolist(), 1)
+        p = p / p[2] * z
+        # - estimate crop
+        crop_res = spyro.cfg.obj.crop_res
+        crop_matrices = calculate_crop_matrix(
+            K=K,
+            t_frame_est=p.reshape(3, 1),
+            crop_res=spyro.cfg.obj.crop_res,
+            frame_radius=spyro.cfg.obj.frame.radius,
+            padding_ratio=spyro.cfg.obj.frame.padding_ratio,
+        )
+        K_crop: np.ndarray = crop_matrices["K_crop"]
+        M_crop: np.ndarray = crop_matrices["M_crop"]
+        crop = cv2.warpAffine(img, M_crop[:2], (crop_res, crop_res))
 
-    if show_crop:
-        cv2.imshow("", cv2.cvtColor(crop, cv2.COLOR_RGB2BGR))
-        cv2.waitKey()
+        if show_crop:
+            cv2.imshow("", cv2.cvtColor(crop, cv2.COLOR_RGB2BGR))
+            cv2.waitKey()
 
-    x = crop.astype(np.float32) / 255.0
-    x = einops.rearrange(x, "h w d -> 1 1 d h w")
-    x = torch.from_numpy(x).to(device)
+        x = crop.astype(np.float32) / 255.0
+        x = einops.rearrange(x, "h w d -> 1 1 d h w")
+        x = torch.from_numpy(x).to(device)
 
-    pos_grid_frame = get_translation_grid_frame(
-        frame_radius=spyro.cfg.obj.frame.radius,
-        t_frame_est=p.reshape(3, 1),
-        random_rotation=False,
-    )
+        pos_grid_frame = get_translation_grid_frame(
+            frame_radius=spyro.cfg.obj.frame.radius,
+            t_frame_est=p.reshape(3, 1),
+            random_rotation=False,
+        )
 
-    out = spyro.forward_infer(
-        img=x,
-        K=torch.from_numpy(einops.rearrange(K_crop, "n m -> 1 1 n m")).float().to(device),
-        world_t_obj_est=torch.from_numpy(p).reshape(1, 3, 1).float().to(device),
-        top_k=top_k,
-        pos_grid_frame=torch.from_numpy(pos_grid_frame)[None].to(device),
-    )
+        spyro_out = spyro.forward_infer(
+            img=x,
+            K=torch.from_numpy(einops.rearrange(K_crop, "n m -> 1 1 n m")).float().to(device),
+            world_t_obj_est=torch.from_numpy(p).reshape(1, 3, 1).float().to(device),
+            top_k=top_k,
+            pos_grid_frame=torch.from_numpy(pos_grid_frame)[None].to(device),
+        )
 
-    if recursion_level is None:
-        recursion_level = spyro.cfg.r_last
-    rot_idxs = out["rot_idxs"][recursion_level][0]
-    probs = out["log_probs"][recursion_level][0].exp().cpu().numpy()
-    rot = getattr(spyro, f"grid_{recursion_level}")[rot_idxs].cpu().numpy()  # (n, 3, 3)
+        if recursion_level is None:
+            recursion_level = spyro.cfg.r_last
+        rot_idxs = spyro_out["rot_idxs"][recursion_level][0]
+        probs = spyro_out["log_probs"][recursion_level][0].exp().cpu().numpy()
+        rot = getattr(spyro, f"grid_{recursion_level}")[rot_idxs].cpu().numpy()  # (n, 3, 3)
 
-    print(f"sum(probs) at recursion level {recursion_level} = {probs.sum():.3f}")
+        print(f"sum(probs) at recursion level {recursion_level} = {probs.sum():.3f}")
 
-    fig = plt.figure()
-    ax0 = fig.add_subplot(1, 2, 1)
-    ax1 = fig.add_subplot(1, 2, 2, projection="mollweide")
-    ax0.imshow(crop)
-    visualize_so3_probabilities(rotations=rot, probabilities=probs, ax=ax1)
-    plt.show()
+        fig = plt.figure()
+        ax0 = fig.add_subplot(1, 2, 1)
+        ax1 = fig.add_subplot(1, 2, 2, projection="mollweide")
+        ax0.imshow(crop)
+        visualize_so3_probabilities(rotations=rot, probabilities=probs, ax=ax1)
+        plt.show()
 
 
 if __name__ == "__main__":

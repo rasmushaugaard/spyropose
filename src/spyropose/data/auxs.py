@@ -46,7 +46,7 @@ class RandomRotatedMaskCrop(BopInstanceAux):
         regular_grid=False,
         translation_std=0.1,
         rgb_interpolation=_default_interpolation_methods,
-        random_rotation=True,
+        random_crop_rotation=True,
     ):
         self.crop_res = crop_res
         self.rgb_interpolation = rgb_interpolation
@@ -56,7 +56,7 @@ class RandomRotatedMaskCrop(BopInstanceAux):
         self.padding_ratio = padding_ratio
         self.definition_aux = RandomRotatedMaskCropDefinition(self)
         self.apply_aux = RandomRotatedMaskCropApply(self)
-        self.random_rotation = random_rotation
+        self.random_rotation = random_crop_rotation
 
     def __call__(self, inst: dict) -> dict:
         inst = self.definition_aux(inst)
@@ -225,7 +225,7 @@ def get_auxs(cfg: SpyroDataConfig):
     random_crop_aux = RandomRotatedMaskCrop(
         crop_res=cfg.obj.crop_res,
         padding_ratio=cfg.obj.frame.padding_ratio,
-        random_rotation=img_aug_cfg.enabled,
+        random_crop_rotation=img_aug_cfg.enabled,
     )
 
     auxs: list[BopInstanceAux] = [

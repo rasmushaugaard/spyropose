@@ -50,8 +50,6 @@ We need to be able to
 * Go from a translation to nearest translation pixel (also using the grid index)
 """
 
-from dataclasses import dataclass
-
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -59,18 +57,11 @@ from scipy.spatial.transform import Rotation
 from torch import Tensor
 
 
-@dataclass
-class TranslationGridDefinition:
-    obj_radius: float
-    random_rotation: bool
-    regular: bool
-
-
 def get_translation_grid_frame(
     frame_radius: float, t_frame_est: np.ndarray, random_rotation=True, regular=False
 ):
     """
-    Initialises a grid around an approximate object position.
+    Initialises a grid around an approximate translation of the spyro frame.
     When the number of recursions go to infinity, the rotation-independent coverage
     becomes the sphere with diameter one in the grid space.
     """

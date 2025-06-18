@@ -67,10 +67,10 @@ def main():
             for k, v in dataset[i].items()
         }
 
-        out = model.forward_infer(
+        out = model.infer(
             img=img_data["img"][None],
             K=img_data["K"][None],
-            world_t_obj_est=img_data["t_est"],
+            world_t_frame_est=img_data["t_est"],
             pos_grid_frame=img_data["t_grid_frame"],
             pose_bs=10_000,
             top_k=top_k,

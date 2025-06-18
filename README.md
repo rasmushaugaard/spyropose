@@ -73,6 +73,7 @@ Check out initial commit.
 - [x] reintroduce validation set
 - [x] make sure eval_vis is working
 - [x] add script to train simple detector
-- [ ] add depth estimation to detector inference
-- [ ] make full inference example
-- [ ] revisit readme
+- [x] add depth estimation to detector inference
+- [x] make full inference example
+- [ ] make
+- [ ] update readme

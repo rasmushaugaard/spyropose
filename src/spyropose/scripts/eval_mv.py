@@ -107,7 +107,7 @@ for group_idx, group in frame_index.iterrows():
             plt.show()
             quit()
 
-        out = model.forward_infer(
+        out = model.infer(
             img=to_dev(imgs.transpose(0, 3, 1, 2)).unsqueeze(0),  # (b, n_cams, c, h, w)
             K=to_dev(Ks).unsqueeze(0),  # (b, n_cams, 3, 3)
             world_t_obj_est=t_est,

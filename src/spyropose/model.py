@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import cv2
 import einops
 import numpy as np
 import pytorch_lightning as pl
@@ -11,6 +12,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from . import rotation_grid, se3_grid, translation_grid, unet, utils
+from .data.auxs import calculate_crop_matrix
 from .obj import SpyroObjectConfig
 
 
@@ -193,29 +195,53 @@ class SpyroPoseModel(pl.LightningModule):
         return torch.cat(lgts, dim=1)  # (b, n)
 
     @torch.no_grad()
-    def forward_infer(
+    def infer(
         self,
-        img: Tensor,
-        K: Tensor,
-        world_t_obj_est: Tensor,  # TODO: frame!
+        img: utils.Array,
+        K: utils.Array,
+        world_t_frame_est: utils.Array,
         top_k: int,
-        pos_grid_frame: Tensor,  # TODO: rename pos_grid_frame to basis
-        world_R_cam: Optional[Tensor] = None,
-        world_t_cam: Optional[Tensor] = None,
-        pose_bs: Optional[int] = None,
+        pos_grid_frame: utils.Array | None = None,  # TODO: rename pos_grid_frame to basis
+        world_R_cam: Tensor | None = None,
+        world_t_cam: Tensor | None = None,
+        pose_bs: int | None = None,
     ):
         """Can be used for both single and multi-view inference"""
-        b, c, _, h, w = img.shape
         device = self.device
+        b, c, h, w, d = img.shape
+        assert d == 3, img.shape
+        assert h == w == self.cfg.obj.crop_res, img.shape
         assert K.shape == (b, c, 3, 3)
-        assert world_t_obj_est.shape == (b, 3, 1)
+        assert world_t_frame_est.shape == (b, 3, 1)
+        if pos_grid_frame is None:
+            pos_grid_frame = np.stack([
+                translation_grid.get_translation_grid_frame(
+                    frame_radius=self.cfg.obj.frame.radius,
+                    t_frame_est=t,
+                    regular=c > 1,
+                )
+                for t in utils.as_ndarray(world_t_frame_est)
+            ])
         assert pos_grid_frame.shape == (b, 3, 3)
         if world_R_cam is None or world_t_cam is None:
-            world_R_cam = torch.eye(3, device=device, dtype=torch.float).repeat(b, 1, 1, 1)
-            world_t_cam = torch.zeros(b, 1, 3, 1, device=device, dtype=torch.float)
+            assert world_R_cam is None and world_t_cam is None
+            world_R_cam = torch.eye(3, dtype=torch.float32, device=device).repeat(b, 1, 1, 1)
+            world_t_cam = torch.zeros(b, 1, 3, 1, dtype=torch.float32, device=device)
         assert world_R_cam.shape == (b, c, 3, 3), world_R_cam.shape
         assert world_t_cam.shape == (b, c, 3, 1), world_t_cam.shape
         bc = b * c
+
+        # to device. could potentially be sped up by tranfering async
+        # see https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html
+        def to_device(x: utils.Array):
+            return utils.as_tensor(x).to(device, torch.float32)
+
+        img = to_device(utils.normalize_images(img))
+        K = to_device(K)
+        world_t_frame_est = to_device(world_t_frame_est)
+        pos_grid_frame = to_device(pos_grid_frame)
+        world_R_cam = to_device(world_R_cam)
+        world_t_cam = to_device(world_t_cam)
 
         cam_R_world = world_R_cam.mT
         cam_t_world = -cam_R_world @ world_t_cam
@@ -258,7 +284,7 @@ class SpyroPoseModel(pl.LightningModule):
 
             world_R_obj: Tensor = getattr(self, f"grid_{r}")[rot_idx]  # (b, n, 3, 3)
             world_t_obj = translation_grid.grid2pos(
-                grid=pos_idx, t_est=world_t_obj_est, grid_frame=pos_grid_frame, r=r + 1
+                grid=pos_idx, t_est=world_t_frame_est, grid_frame=pos_grid_frame, r=r + 1
             )  # (b, n, 3, 1)
 
             cam_R_obj = cam_R_world.unsqueeze(2) @ world_R_obj.unsqueeze(1)  # (b, c, n, 3, 3)
@@ -472,10 +498,10 @@ class SpyroPoseModel(pl.LightningModule):
         if top_k is None:
             top_k = self.cfg.val_top_k
 
-        return self.forward_infer(
-            img=batch["img"].unsqueeze(1),
+        return self.infer(
+            img=einops.rearrange(batch["img"], "b d h w -> b 1 h w d"),
             K=batch["K"].unsqueeze(1),
-            world_t_obj_est=batch["t_est"],
+            world_t_frame_est=batch["t_est"],
             pos_grid_frame=batch["t_grid_frame"],
             top_k=top_k,
             pose_bs=pose_bs,
@@ -510,3 +536,17 @@ class SpyroPoseModel(pl.LightningModule):
     @classmethod
     def load_eval_freeze(cls, path: str | Path, device):
         return utils.load_eval_freeze(cls, path, device)
+
+    def crop_from_translation_est(self, img: np.ndarray, K: np.ndarray, cam_t_frame: np.ndarray):
+        crop_res = self.cfg.obj.crop_res
+        crop_matrices = calculate_crop_matrix(
+            K=K,
+            t_frame_est=cam_t_frame.reshape(3, 1),
+            crop_res=crop_res,
+            frame_radius=self.cfg.obj.frame.radius,
+            padding_ratio=self.cfg.obj.frame.padding_ratio,
+        )
+        K_crop: np.ndarray = crop_matrices["K_crop"]
+        M_crop: np.ndarray = crop_matrices["M_crop"]
+        crop = cv2.warpAffine(img, M_crop[:2], (crop_res, crop_res))
+        return crop, K_crop

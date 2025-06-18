@@ -1,50 +1,60 @@
 import time
-from collections.abc import Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Type, TypeVar
 
+import einops
 import numpy as np
 import pytorch_lightning as pl
 import torch
-import torch.nn
-import trimesh
-from scipy.spatial.transform import Rotation
 from scipy.stats import chi2
 from torch import Tensor
 
-
-def get_random_rotations(n):
-    return Rotation.random(n).as_matrix().astype(np.float32)  # (n, 3, 3)
+type Array = np.ndarray | Tensor
 
 
-def normalize(x, axis=-1):
+def get_array_namespace(x: Array):
+    if isinstance(x, Tensor):
+        return torch
+    elif isinstance(x, np.ndarray):
+        return np
+    raise ValueError()
+
+
+def as_tensor(x: Array):
+    if isinstance(x, np.ndarray):
+        x = torch.from_numpy(x)
+    return x
+
+
+def as_ndarray(x: Array):
+    if isinstance(x, Tensor):
+        x = x.cpu().numpy()
+    return x
+
+
+def if_none(x, other):
+    if x is None:
+        return other
+    return x
+
+
+def normalize_vectors(x, axis=-1):
     return x / np.linalg.norm(x, axis=axis, keepdims=True)
 
 
-class Lambda(torch.nn.Module):
-    def __init__(self, fun):
-        super().__init__()
-        self.fun = fun
-
-    def forward(self, x):
-        return self.fun(x)
-
-
-def to_device(d, device):
-    return {k: v.to(device, non_blocking=device != "cpu") for k, v in d.items()}
-
-
-def to_tensor_batch(d):
-    return {
-        k: (torch.from_numpy(v) if isinstance(v, np.ndarray) else torch.tensor(v))[None]
-        for k, v in d.items()
-    }
+def normalize_images(x: Array):
+    x = as_tensor(x)
+    if x.dtype == torch.uint8:
+        x = x.float() / 255.0
+    assert x.dtype == torch.float32
+    return einops.rearrange(x, "... h w d -> ... d h w", d=3)
 
 
 def worker_init_fn(*_):
     # each worker should only use one os thread
     # numpy/cv2 takes advantage of multithreading by default
+    # I'm not sure how much of this is still necessary but shared numpy seeds and worker multiprocessing has led to problems previously
     import os
 
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -112,56 +122,6 @@ def farthest_point_sampling(pc: np.ndarray, n: int):
             p = p[1:]
 
     return p
-
-
-@contextmanager
-def np_random_seed(seed: int):
-    random_state = np.random.get_state()
-    np.random.seed(seed)
-    yield
-    np.random.set_state(random_state)
-
-
-def sample_keypoints_from_mesh(mesh: trimesh.Trimesh, n_pts: int):
-    """
-    first samples a large amount of uniform samples with a fixed seed,
-    followed by farthest point sampling to get a small set of close to
-    evenly sampled surface points
-    """
-    with np_random_seed(0):
-        samples = mesh.sample(10_000)
-    return farthest_point_sampling(samples, n_pts)
-
-
-def rotation_between_vectors(a, b):
-    """
-    Returns a rotation matrix, satisfying normalize(b) = R normalize(a)
-    https://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d
-    """
-    a, b = normalize(a), normalize(b)
-    v = np.cross(a, b)
-    c = a @ b
-    vx = np.cross(np.eye(3), v)
-    R = np.eye(3) + vx + vx @ vx / (1 + c)
-    return R
-
-
-def to_alpha_img(img):
-    img = img.transpose(1, 2, 0)
-    img = np.concatenate(
-        (
-            img,
-            (img > 0).all(axis=2, keepdims=True),
-        ),
-        axis=2,
-    )  # (h, w, 4)
-    return img
-
-
-def to_tuples(seq):
-    if isinstance(seq, Sequence):
-        return tuple((to_tuples(el) for el in seq))
-    return seq
 
 
 ModelType = TypeVar("ModelType", bound=pl.LightningModule)

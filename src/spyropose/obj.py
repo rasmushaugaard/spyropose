@@ -46,6 +46,15 @@ class SpyroObjectConfig:
         else:
             self.keypoints = np.asarray(keypoints)
 
+    def __eq__(self, other):
+        if not isinstance(other, SpyroObjectConfig):
+            return NotImplemented
+        a = (self.dataset, self.obj, self.crop_res, self.recursion_depth, self.frame)
+        b = (other.dataset, other.obj, other.crop_res, other.recursion_depth, other.frame)
+        if a != b:
+            return False
+        return np.allclose(self.keypoints, other.keypoints)
+
     @property
     def root_dir(self):
         root = Path("data/bop") / self.dataset

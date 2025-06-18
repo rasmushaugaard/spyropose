@@ -24,7 +24,7 @@ def get_R_base():
         hp.pix2vec(1, np.arange(12), nest=True), axis=1
     )  # (12 base pixels, 3 z axis)
     # define by a non-zero cross product (any direction not in base_z)
-    base_x = utils.normalize(np.cross(np.ones(3), base_z))  # (12, 3)
+    base_x = utils.normalize_vectors(np.cross(np.ones(3), base_z))  # (12, 3)
     R_base = np.stack((base_x, np.cross(base_z, base_x), base_z), axis=-1)
     assert R_base.shape == (12, 3, 3)
     return R_base  # (12, 3, 3)

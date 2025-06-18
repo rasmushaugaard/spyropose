@@ -105,7 +105,7 @@ class SpyroPoseModel(pl.LightningModule):
             return warmup_factor * (1 + np.cos(decay_step * np.pi)) / 2
 
         sched = torch.optim.lr_scheduler.LambdaLR(opt, lr)
-        return [opt], [dict(scheduler=sched)]
+        return [opt], [dict(scheduler=sched, interval="step")]
 
     def optimizer(self):
         opt = self.optimizers()

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,8 +22,8 @@ class SO3VisResult:
 def visualize_so3_probabilities(
     rotations: np.ndarray,
     probabilities: np.ndarray,
-    rotations_gt: Optional[np.ndarray] = None,
-    ax: Optional[Axes] = None,
+    rotations_gt: np.ndarray | None = None,
+    ax: Axes | None = None,
     display_threshold_probability=0.0,
     rot_offset=np.eye(3),
     canonical_rotation=Rotation.from_euler("xyz", [0.4] * 3).as_matrix(),
@@ -35,7 +35,7 @@ def visualize_so3_probabilities(
     fill_gt=False,
     marker_size=2000,
     marker_linewidth=2,
-    gamma=0.5,
+    gamma=1.0,
     c=None,
     scatter_zorder=10,
 ) -> SO3VisResult:

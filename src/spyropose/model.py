@@ -506,3 +506,7 @@ class SpyroPoseModel(pl.LightningModule):
         if return_fp:
             return model, ckpt_path
         return model
+
+    @classmethod
+    def load_eval_freeze(cls, path: str | Path, device):
+        return utils.load_eval_freeze(cls, path, device)

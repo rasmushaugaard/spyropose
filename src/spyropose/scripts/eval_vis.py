@@ -122,7 +122,6 @@ def main():
             probabilities=probs.cpu().numpy(),
             rotations_gt=img_data["R"][:1].cpu().numpy(),
             ax=ax1,
-            display_threshold_probability=0,
             s=7 * 1024 / 4**r,
             gamma=args.gamma,
         )

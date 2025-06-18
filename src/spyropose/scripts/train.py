@@ -20,7 +20,7 @@ def cli_train():
     parser.add_class_arguments(
         pl.Trainer,
         "trainer",
-        default=dict(max_steps=50_000),
+        default=dict(max_steps=50_000, limit_val_batches=250, val_check_interval=5000),
         skip={"logger", "callbacks"},
         instantiate=False,
     )

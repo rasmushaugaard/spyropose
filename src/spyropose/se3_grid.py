@@ -15,6 +15,9 @@ An SE3 bin is then indexed by the four indices:
     (rot_idx, pos_idx_x, pos_idx_y, pos_idx_z).
 """
 
+import math
+from dataclasses import dataclass
+from functools import cached_property
 from typing import List
 
 import einops
@@ -69,11 +72,11 @@ def expand(rot_idx, pos_idx, flat=False):
     return rot_idx, pos_idx
 
 
-def log_bin_count(r: int):
+def log_bin_count(r):
     # 72 rotation bins x 8 position bins at recursion 0, branch factor 64.
     # n = (72 * 8) * 64 ** r
     # log(n) = log(72 * 8) + log(64 ** r) = log(72 * 8) + r * log(64)
-    return np.log(72 * 8) + r * np.log(64)
+    return math.log(72 * 8) + r * math.log(64)
 
 
 def locate_poses_in_pyramid(
@@ -91,6 +94,8 @@ def locate_poses_in_pyramid(
     rlast refers to the last recursion.
 
     Locates multiple (n) query poses in multiple (b) se3 pyramids.
+
+    TODO: refactor to use SpyroPyramid
     """
     device = q_rot_idx_rlast.device
     recursion_depth = len(rot_idxs)
@@ -148,3 +153,127 @@ def locate_poses_in_pyramid(
     # all queries should match at layer 0
     assert (idx_match[..., 0] != -1).all()
     return idx_match, ll
+
+
+@dataclass
+class PosePyramid:
+    """
+    n_r denotes n_expanded_{r-1} * 2^6 (top_k * 2^6)
+    """
+
+    world_t_frame_est: Tensor  # (b, 3, 1)
+    position_scale: float  # e.g. 1e-3 if units are mm
+    translation_grid_basis: Tensor  # (b, 3, 3)
+    rotation_grids: list[Tensor]  # R x (m_r, 3, 3)
+    obj_t_frame: Tensor  # (3, 1)
+
+    rot_idxs: list[Tensor]  # R x (b, n_r)
+    pos_idxs: list[Tensor]  # R x (b, n_r)
+    log_probs: list[Tensor]  # R x (b, n_r)
+    expand_idxs: list[Tensor]  # R x (b, n_expanded_r)
+
+    @property
+    def recursion_depth(self):
+        return len(self.rot_idxs)
+
+    @property
+    def b(self):
+        return self.rot_idxs[0].shape[0]
+
+    @property
+    def device(self):
+        return self.rot_idxs[0].device
+
+    @cached_property
+    def _leaf_masks(self):
+        """Those bins which have not been expanded are leaf nodes"""
+        masks = []
+        for x, expand_idx in zip(self.rot_idxs, self.expand_idxs, strict=True):
+            mask = torch.ones_like(x, dtype=torch.bool)
+            mask[torch.arange(self.b).view(self.b, 1), expand_idx] = False
+            masks.append(mask)
+        return masks
+
+    def _get_leafs(self, xl: list[Tensor]):
+        return torch.cat([x[mask] for x, mask in zip(xl, self._leaf_masks, strict=True)])
+
+    @cached_property
+    def leaf_rot_idxs(self):
+        """(b, n_leafs)"""
+        return self._get_leafs(self.rot_idxs)
+
+    @cached_property
+    def leaf_pos_idxs(self):
+        """(b, n_leafs)"""
+        return self._get_leafs(self.pos_idxs)
+
+    @cached_property
+    def leaf_log_probs(self):
+        """(b, n_leafs)"""
+        return self._get_leafs(self.log_probs)
+
+    @cached_property
+    def leaf_recursion_level(self):
+        """(n_leafs,)"""
+        return torch.repeat_interleave(
+            torch.arange(self.recursion_depth, device=self.device),
+            torch.cat([leaf_mask.sum() for leaf_mask in self._leaf_masks]),
+        )
+
+    @cached_property
+    def log_bounded_se3_volume(self):
+        """(b, 1)"""
+        log_so3_volume: float = np.log(np.pi**2).item()
+        # determinant of frame is the volume of the parallelogram spanning the grid volume
+        log_r3_volume = torch.logdet(self.translation_grid_basis * self.position_scale)
+        log_se3_volume = log_r3_volume + log_so3_volume
+        return log_se3_volume.unsqueeze(1)
+
+    @cached_property
+    def leaf_log_volume(self):
+        """(b, n_leafs)"""
+        return self.log_bounded_se3_volume - log_bin_count(self.leaf_recursion_level)
+
+    @cached_property
+    def leaf_log_density(self):
+        """(b, n_leafs)"""
+        return self.leaf_log_probs - self.leaf_log_volume
+
+    @cached_property
+    def _world_R_frame(self):
+        """R x (b, n_r, 3, 3)"""
+        return [self.rotation_grids[r][rot_idx] for r, rot_idx in enumerate(self.rot_idxs)]
+
+    @cached_property
+    def _world_t_frame(self):
+        """R x (b, n_r, 3, 1)"""
+        return [
+            translation_grid.grid2pos(
+                grid=pos_idx,
+                t_est=self.world_t_frame_est,
+                grid_frame=self.translation_grid_basis,
+                r=r + 1,
+            )
+            for r, pos_idx in enumerate(self.pos_idxs)
+        ]
+
+    @cached_property
+    def leaf_world_t_frame(self):
+        """(b, n_leafs, 3, 1)"""
+        return self._get_leafs(self._world_t_frame)
+
+    @cached_property
+    def leaf_world_R_frame(self):
+        """(b, n_leafs, 3, 3)"""
+        return self._get_leafs(self._world_R_frame)
+
+    @cached_property
+    def leaf_world_t_obj(self):
+        """(b, n_leafs, 3, 1)"""
+        frame_t_obj = -self.obj_t_frame  # obj_R_frame = I
+        return self.leaf_world_t_frame + self.leaf_world_R_frame @ frame_t_obj
+
+    @property
+    def leaf_world_R_obj(self):
+        """(b, n_leafs, 3, 3)"""
+        return self.leaf_world_R_frame  # obj_R_frame = I

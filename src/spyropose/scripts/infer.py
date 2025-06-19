@@ -17,13 +17,12 @@ def infer(
     detector_path: Path,
     spyro_path: Path,
     device="cuda:0",
-    show_det=False,
     r_idx: int | None = None,
     top_k: int = 512,
     split="train_pbr",
     scene_id=19,
     img_id=0,
-    max_instances=3,
+    fig_scale=3.0,
 ):
     # load models in eval mode and freeze weights
     detector = SpyroDetector.load_eval_freeze(detector_path, device)
@@ -44,23 +43,15 @@ def infer(
     # run detection on single-image batch
     detections = detector.infer(img[None])[0]
 
-    # init figure
-    n = min(len(detections), max_instances)
-    fig = plt.figure()
-    spec = fig.add_gridspec(nrows=2, ncols=n + 3)
-
     # visualize detections
     img_det = img.copy()
     for box, score in zip(detections.boxes, detections.scores):
         l, t, r, b = box.round().long().tolist()
         cv2.rectangle(img_det, (l, t), (r, b), (0, 0, 255))
         cv2.putText(img_det, f"{score:.3f}", (l, b), cv2.FONT_HERSHEY_COMPLEX, 1.0, (0, 0, 255))
-    ax = fig.add_subplot(spec[:, -3:])
-    ax.imshow(img_det)
-    ax.set_axis_off()
 
     # run spyropose on crops
-    for i, idx in zip(range(n), torch.argsort(detections.scores, descending=True)):
+    for idx in torch.argsort(detections.scores, descending=True):
         box = detections.boxes[idx].cpu().numpy()
         cam_t_frame = detector.estimate_translation_from_bbox(box=box, K=K)
         crop, K_crop = spyro.crop_from_translation_est(img=img, K=K, cam_t_frame=cam_t_frame)
@@ -73,20 +64,29 @@ def infer(
         )
 
         # TODO make output more digestible
-        rot_idxs = spyro_out["rot_idxs"][r_idx][0]
-        probs = spyro_out["log_probs"][r_idx][0].exp().cpu().numpy()
+        rot_idxs = spyro_out.rot_idxs[r_idx][0]
+        probs = spyro_out.log_probs[r_idx][0].exp().cpu().numpy()
         rot = getattr(spyro, f"grid_{r_idx}")[rot_idxs].cpu().numpy()  # (n, 3, 3)
 
         print(f"sum(probs) at recursion level {r_idx} = {probs.sum():.3f}")
 
-        ax = fig.add_subplot(spec[0, i])
+        # vis
+        n_rows, n_cols = 2, 3 + 2
+        fig = plt.figure(figsize=(n_cols * fig_scale, n_rows * fig_scale))
+        spec = fig.add_gridspec(nrows=n_rows, ncols=n_cols)
+        # - detections
+        ax = fig.add_subplot(spec[:, :3])
+        ax.imshow(img_det)
+        ax.set_axis_off()
+        # - crop
+        ax = fig.add_subplot(spec[0, 3:5])
         ax.imshow(crop)
         ax.set_axis_off()
-
-        ax = fig.add_subplot(spec[1, i], projection="mollweide")
+        # - so3 dist
+        ax = fig.add_subplot(spec[1, 3:5], projection="mollweide")
         visualize_so3_probabilities(rotations=rot, probabilities=probs, ax=ax)
-    fig.tight_layout()
-    plt.show()
+        fig.tight_layout()
+        plt.show()
 
 
 if __name__ == "__main__":

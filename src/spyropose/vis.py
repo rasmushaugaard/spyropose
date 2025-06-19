@@ -14,7 +14,6 @@ class SO3VisResult:
     canonical_rotation: np.ndarray
     show_marker: Callable
     scatter_tree: KDTree
-    rotation_mask: np.ndarray
     colors: np.ndarray
     alpha: np.ndarray
 
@@ -24,7 +23,6 @@ def visualize_so3_probabilities(
     probabilities: np.ndarray,
     rotations_gt: np.ndarray | None = None,
     ax: Axes | None = None,
-    display_threshold_probability=0.0,
     rot_offset=np.eye(3),
     canonical_rotation=Rotation.from_euler("xyz", [0.4] * 3).as_matrix(),
     scatter_alpha=1.0,
@@ -41,18 +39,17 @@ def visualize_so3_probabilities(
 ) -> SO3VisResult:
     if rotations_gt is None:
         rotations_gt = np.empty((0, 3, 3))
-
     assert rotations_gt.ndim == 3, rotations_gt.shape
     assert rotations_gt.shape[1:] == (3, 3), rotations_gt.shape
-
-    rotations = np.asarray(rotations)
     rotations_gt = np.asarray(rotations_gt)
+
     if fill_gt:
         marker_linewidth = marker_linewidth * 2
 
     if ax is None:
         fig = plt.figure(figsize=(8, 4), dpi=100)
         ax = fig.add_subplot(111, projection="mollweide")
+    assert ax.name == "mollweide", "provided Axes must have mollweide projection"
 
     def get_vis_rot(R):
         R = rot_offset @ R @ canonical_rotation
@@ -93,15 +90,13 @@ def visualize_so3_probabilities(
             for rotation in rotations_gt:
                 show_marker(rotation, fill=True)
 
-    rotation_mask = probabilities > display_threshold_probability
-    longitudes, latitudes, tilt_angles = get_vis_rot(rotations[rotation_mask])
+    longitudes, latitudes, tilt_angles = get_vis_rot(rotations)
 
     ax.grid(visible=True, zorder=-10)
     ax.set_xticklabels([])
     ax.set_yticklabels([])
 
-    alpha = probabilities[rotation_mask]
-    alpha = (alpha / alpha.max()) ** gamma
+    alpha = (probabilities / probabilities.max()) ** gamma
     colors = cmap(0.5 + tilt_angles / 2.0 / np.pi)
     ax.scatter(
         longitudes,
@@ -118,7 +113,6 @@ def visualize_so3_probabilities(
         canonical_rotation=canonical_rotation,
         show_marker=show_marker,
         scatter_tree=KDTree(np.stack((longitudes, latitudes), axis=1)),
-        rotation_mask=rotation_mask,
         colors=colors,
         alpha=alpha,
     )

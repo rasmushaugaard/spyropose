@@ -45,6 +45,7 @@ class SpyroModelConfig:
 
 class SpyroPoseModel(pl.LightningModule):
     keypoints: Tensor
+    obj_t_frame: Tensor
 
     def __init__(self, cfg: SpyroModelConfig):
         super().__init__()
@@ -53,6 +54,11 @@ class SpyroPoseModel(pl.LightningModule):
         self.save_hyperparameters(logger=False)
 
         self.register_buffer("keypoints", torch.tensor(cfg.obj.keypoints, dtype=torch.float).mT)
+        self.register_buffer(
+            "obj_t_frame",
+            torch.tensor(cfg.obj.frame.obj_t_frame).view(3, 1).float(),
+            persistent=False,
+        )
 
         self.point_dropout = nn.Dropout2d(cfg.point_dropout)
 
@@ -317,7 +323,14 @@ class SpyroPoseModel(pl.LightningModule):
         # Indicate that no idxs from the last recursion are expanded
         expand_idxs.append(torch.empty(b, 0, dtype=torch.long, device=device))
 
-        return dict(
+        return se3_grid.PosePyramid(
+            world_t_frame_est=world_t_frame_est,
+            position_scale=self.cfg.position_scale,
+            translation_grid_basis=pos_grid_frame,
+            obj_t_frame=self.obj_t_frame,
+            rotation_grids=[
+                getattr(self, f"grid_{r}") for r in range(self.cfg.obj.recursion_depth)
+            ],
             rot_idxs=rot_idxs,
             pos_idxs=pos_idxs,
             log_probs=log_probs,
@@ -370,10 +383,7 @@ class SpyroPoseModel(pl.LightningModule):
         lgts = torch.tensor([])
 
         for r in range(self.cfg.obj.recursion_depth):
-            assert rot_idx.shape == (
-                b,
-                n,
-            ), f"{b=}, {n=})"
+            assert rot_idx.shape == (b, n), f"{b=}, {n=})"
             assert pos_idx.shape == (b, n, 3)
 
             # Concatenate the true (nearest) grid point to the sampled points,
@@ -382,13 +392,7 @@ class SpyroPoseModel(pl.LightningModule):
             rot_idx_target_r = rot_idx_target_rlast.div(
                 8 ** (self.cfg.r_last - r), rounding_mode="trunc"
             )
-            rot_idx = torch.cat(
-                (
-                    rot_idx_target_r.view(b, 1),
-                    rot_idx,
-                ),
-                dim=1,
-            )  # (b, 1+n)
+            rot_idx = torch.cat((rot_idx_target_r.view(b, 1), rot_idx), dim=1)  # (b, 1+n)
 
             pos_idx_target_r = pos_idx_target_rlast.div(
                 2 ** (self.cfg.r_last - r), rounding_mode="trunc"
@@ -510,13 +514,13 @@ class SpyroPoseModel(pl.LightningModule):
     def eval_step(self, batch, pose_bs=10_000, top_k=512):
         out = self.forward_infer_batch(batch, top_k=top_k, pose_bs=pose_bs)
         _, ll = se3_grid.locate_poses_in_pyramid(
+            rot_idxs=out.rot_idxs,
+            pos_idxs=out.pos_idxs,
+            log_probs=out.log_probs,
             q_rot_idx_rlast=batch[f"rot_idx_target_{self.cfg.r_last}"],
-            log_probs=out["log_probs"],
-            rot_idxs=out["rot_idxs"],
             t_est=batch["t_est"],
             pos_grid_frame=batch["t_grid_frame"],
             q_pos=batch["t"].unsqueeze(1),
-            pos_idxs=out["pos_idxs"],
             position_scale=self.cfg.position_scale,
         )
         return ll

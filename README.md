@@ -75,5 +75,5 @@ Check out initial commit.
 - [x] add script to train simple detector
 - [x] add depth estimation to detector inference
 - [x] make full inference example
-- [ ] make
+- [ ] make output dataclass (leaf)
 - [ ] update readme

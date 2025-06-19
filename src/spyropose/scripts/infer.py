@@ -60,8 +60,8 @@ def infer(
     )
 
     # run spyropose on crops
-    for max_ll_left_idx in torch.argsort(detections.scores, descending=True):
-        box = detections.boxes[max_ll_left_idx].cpu().numpy()
+    for detection_idx in torch.argsort(detections.scores, descending=True):
+        box = detections.boxes[detection_idx].cpu().numpy()
         cam_t_frame = detector.estimate_translation_from_bbox(box=box, K=K)
         crop, K_crop = spyro.crop_from_translation_est(img=img, K=K, cam_t_frame=cam_t_frame)
         spyro_out = spyro.infer(

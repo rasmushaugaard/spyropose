@@ -31,7 +31,7 @@ def cli_train():
     )
 
     parser.add_argument("--num_workers", type=int, default=10)
-    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--wandb_project", type=str, default="spyropose")
     parser.add_argument("--debug", action="store_true")
 

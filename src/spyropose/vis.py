@@ -27,7 +27,7 @@ def visualize_so3_probabilities(
     canonical_rotation=Rotation.from_euler("xyz", [0.4] * 3).as_matrix(),
     scatter_alpha=1.0,
     cmap=plt.get_cmap("hsv"),
-    s=5,
+    s=2,
     long_offset=0.0,
     lat_offset=0.0,
     fill_gt=False,
@@ -37,6 +37,10 @@ def visualize_so3_probabilities(
     c=None,
     scatter_zorder=10,
 ) -> SO3VisResult:
+    assert rotations.ndim == 3 and rotations.shape[-2:] == (3, 3), (
+        f"expected shape (n, 3, 3) for rotations. Got {rotations.shape}"
+    )
+
     if rotations_gt is None:
         rotations_gt = np.empty((0, 3, 3))
     assert rotations_gt.ndim == 3, rotations_gt.shape

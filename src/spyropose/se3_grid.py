@@ -185,17 +185,36 @@ class PosePyramid:
         return self.rot_idxs[0].device
 
     @cached_property
-    def _leaf_masks(self):
-        """Those bins which have not been expanded are leaf nodes"""
-        masks = []
+    def leaf_idxs(self):
+        """R x (b, n_leaf_r)
+        Those bins which have not been expanded are leaf nodes"""
+        leaf_idxs: list[Tensor] = []
         for x, expand_idx in zip(self.rot_idxs, self.expand_idxs, strict=True):
-            mask = torch.ones_like(x, dtype=torch.bool)
-            mask[torch.arange(self.b).view(self.b, 1), expand_idx] = False
-            masks.append(mask)
-        return masks
+            b, n = x.shape
+            _, k = expand_idx.shape
+            mask = torch.ones((b, n), device=self.device, dtype=torch.bool)
+            mask.scatter_(dim=1, index=expand_idx, value=False)
+            idx = mask.nonzero(as_tuple=True)[1].view(b, n - k)
+            leaf_idxs.append(idx)
+        return leaf_idxs
+
+    @cached_property
+    def n_leafs_per_recursion(self):
+        return torch.tensor([leaf_idx.shape[1] for leaf_idx in self.leaf_idxs], device=self.device)
+
+    @cached_property
+    def n_leafs(self):
+        return self.n_leafs_per_recursion.sum()
 
     def _get_leafs(self, xl: list[Tensor]):
-        return torch.cat([x[mask] for x, mask in zip(xl, self._leaf_masks, strict=True)])
+        """(b, n_leafs)"""
+        return torch.cat(
+            [
+                x[torch.arange(self.b, device=self.device).view(self.b, 1), leaf_idx]
+                for x, leaf_idx in zip(xl, self.leaf_idxs, strict=True)
+            ],
+            dim=1,
+        )
 
     @cached_property
     def leaf_rot_idxs(self):
@@ -213,11 +232,16 @@ class PosePyramid:
         return self._get_leafs(self.log_probs)
 
     @cached_property
+    def leaf_probs(self):
+        """(b, n_leafs)"""
+        return self.leaf_log_probs.exp()
+
+    @cached_property
     def leaf_recursion_level(self):
         """(n_leafs,)"""
         return torch.repeat_interleave(
             torch.arange(self.recursion_depth, device=self.device),
-            torch.cat([leaf_mask.sum() for leaf_mask in self._leaf_masks]),
+            self.n_leafs_per_recursion,
         )
 
     @cached_property
@@ -277,3 +301,31 @@ class PosePyramid:
     def leaf_world_R_obj(self):
         """(b, n_leafs, 3, 3)"""
         return self.leaf_world_R_frame  # obj_R_frame = I
+
+    @cached_property
+    def expected_world_R_frame(self):
+        """(b, 3, 3)"""
+        x = self.leaf_world_R_frame * einops.rearrange(self.leaf_probs, "b n -> b n 1 1")
+        x = x.sum(dim=1)  # (b, 3, 3)
+        # orthogonal procrustes
+        u, _, vh = torch.linalg.svd(x)
+        s = torch.eye(3, device=self.device).unsqueeze(0).expand(self.b, 3, 3)
+        s[:, 2, 2] = torch.sign(torch.linalg.det(u @ vh))
+        return u @ s @ vh
+
+    @property
+    def expected_world_R_obj(self):
+        return self.expected_world_R_frame
+
+    @cached_property
+    def expected_world_t_frame(self):
+        """(b, 3, 1)"""
+        return (self.leaf_world_t_frame * einops.rearrange(self.leaf_probs, "b n -> b n 1 1")).sum(
+            dim=1
+        )
+
+    @cached_property
+    def expected_world_t_obj(self):
+        """(b, 3, 1)"""
+        frame_t_obj = -self.obj_t_frame  # obj_R_frame = I
+        return self.expected_world_t_frame + self.expected_world_R_frame @ frame_t_obj

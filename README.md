@@ -6,47 +6,56 @@ Official code for Spyropose: SE(3) pyramids for object pose distribution estimat
 ## Installation
 
 We recommend using [uv](https://docs.astral.sh/uv/) for dependency management.
-In a project, add spyropose as a dependency
+In a project, add spyropose as a dependency, for example from a git repo as below
 
 ```bash
-uv add git+REPO_URL
+uv add REPO_URL
 ```
 
 ## Training Spyro
 
 Spyropose trains a model per object.
 
-Store your training data in the [BOP format](https://github.com/thodan/bop_toolkit/blob/master/docs/bop_datasets_format.md).
+Store your training data in the [BOP format](https://github.com/thodan/bop_toolkit/blob/master/docs/bop_datasets_format.md) in `./data/bop/DATASET`
 
 ```bash
-uv run -m spyropose.scripts.inspect_data DATASET_PATH OBJECT_ID_OR_NAME
+uv run -m spyropose.scripts.inspect_data \
+  --data.obj.dataset=DATASET \
+  --data.obj.obj=OBJECT_ID_OR_NAME
 ```
 
-If the data looks fine, you can train a spyropose model like so:
+If the data looks fine, you can train a spyropose model with the below command.
+This would use scenes with index 0 through 18 for training and scene 19 for validation.
 
 ```bash
-uv run -m spyropose.scripts.train DATASET_PATH OBJECT_ID_OR_NAME
+uv run -m spyropose.scripts.train \
+  --obj.dataset=DATASET \
+  --obj.obj=OBJECT_ID_OR_NAME \
+  --data_train.scene_id_range=[0,19] \
+  --data_valid.scene_id_range=[19,20]
 ```
 
-This will save a model checkpoint to be loaded during inference.
+## A detector
+
+A script to train a simple detector is included and can be trained with a similar script:
+
+```bash
+uv run -m spyropose.detection.train \
+  --obj.dataset=DATASET \
+  --obj.obj=OBJECT_ID_OR_NAME \
+  --data_train.scene_id_range=[0,19] \
+  --data_valid.scene_id_range=[19,20]
+```
 
 ## Inference
 
-```python
-from spyropose.model import SpyroPose
-model = SpyroPose.from_ckpt(PATH_TO_TRAINED_MODEL)
-...
-model()
-# TODO
-```
+See [./src/spyropose/scripts/infer.py](./src/spyropose/scripts/infer.py).
 
-## Detector
+Can be run like so:
 
 ```bash
-# inspect detection data
-uv run -m spyropose.detection.data --obj.dataset=DATASET --obj.obj=OBJECT --data_train.scene_rng="[0,19]" --data_valid.scene_rng="[19,20]"
-# to train a simple detector
-uv run -m spyropose.detection.train  # similar args as above
+uv run -m spyropose.scripts.infer \
+  ./data/spyropose_detector/2kewoepx ./data/spyropose/dwq4lb0a 19 0
 ```
 
 ## Reproducing results from paper
@@ -64,16 +73,3 @@ Check out initial commit.
   year={2023}
 }
 ```
-
-## TODO
-
-- [x] allow frame / keyboard configuration
-- [x] save all relevant hyperparameters to make inference easier with the model. model name, frame config, etc.
-- [x] log hyper parameters
-- [x] reintroduce validation set
-- [x] make sure eval_vis is working
-- [x] add script to train simple detector
-- [x] add depth estimation to detector inference
-- [x] make full inference example
-- [ ] make output dataclass (leaf)
-- [ ] update readme

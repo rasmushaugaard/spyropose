@@ -44,6 +44,13 @@ def infer(
         str(split_dir / f"{scene_id:06d}/rgb/{img_id:06d}.jpg"),
         cv2.IMREAD_COLOR_RGB,
     )
+    with open(split_dir / f"{scene_id:06d}/scene_gt.json") as f:
+        instances_gt = [inst for inst in json.load(f)[str(img_id)] if inst["obj_id"] == obj.obj_id]
+    world_R_objs_gt = np.array([inst["cam_R_m2c"] for inst in instances_gt]).reshape(-1, 3, 3)
+    world_t_objs_gt = np.array([inst["cam_t_m2c"] for inst in instances_gt]).reshape(-1, 3, 1)
+    world_t_frames_gt = world_t_objs_gt + world_R_objs_gt @ np.asarray(
+        obj.frame.obj_t_frame
+    ).reshape(3, 1)
 
     # run detection on single-image batch
     detections = detector.infer(img[None])[0]
@@ -71,6 +78,9 @@ def infer(
             world_t_frame_est=cam_t_frame.reshape(1, 3, 1),
             top_k=top_k,
         )
+
+        gt_dists = np.linalg.norm(cam_t_frame[:, None] - world_t_frames_gt, axis=-2)
+        gt_idx_guess = np.argmin(gt_dists)
 
         # visualization
         leaf_world_R_obj = spyro_out.leaf_world_R_obj[0].cpu().numpy()
@@ -106,7 +116,7 @@ def infer(
             rgb, alpha = render[..., :3] * color, render[..., 3:] * alpha
             return rgb * alpha + crop / 255.0 * (1 - alpha)
 
-        n_rows, n_cols = 2, 3 + 3
+        n_rows, n_cols = 2, 3 + 4
         fig = plt.figure(figsize=(n_cols * fig_scale, n_rows * fig_scale))
         spec = fig.add_gridspec(nrows=n_rows, ncols=n_cols)
         # - detections
@@ -131,9 +141,21 @@ def infer(
         ax.imshow(overlay(render_expected))
         ax.set_title("E_p x")
         ax.set_axis_off()
+        # maybe ground truth
+        ax = fig.add_subplot(spec[0, 6])
+        ax.imshow(
+            overlay(
+                renderer.render(
+                    K=K_crop, R=world_R_objs_gt[gt_idx_guess], t=world_t_objs_gt[gt_idx_guess]
+                )
+            )
+        )
+        ax.set_title("maybe ground truth")
+        ax.set_axis_off()
         # - so3 dist
         visualize_so3_probabilities(
             rotations=leaf_world_R_obj,
+            rotations_gt=world_R_objs_gt[gt_idx_guess : gt_idx_guess + 1],
             probabilities=leaf_probabilities,
             ax=fig.add_subplot(spec[1, 3:], projection="mollweide"),
         )

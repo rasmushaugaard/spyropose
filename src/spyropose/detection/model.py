@@ -68,6 +68,7 @@ class SpyroDetector(pl.LightningModule):
         return [DetectionOutput(scores=out["scores"], boxes=out["boxes"]) for out in out_batch]
 
     def estimate_translation_from_bbox(self, box: np.ndarray, K: np.ndarray) -> np.ndarray:
+        """(3,)"""
         # Depth from scale
         # Generally: img_size = f * 3d_size / depth
         # in this case:

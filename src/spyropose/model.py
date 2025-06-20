@@ -28,7 +28,7 @@ class SpyroModelConfig:
     position_scale: float = 1e-3
 
     # training
-    lr: float = 1e-4
+    lr: float = 3e-4
     weight_decay: float = 0.0
     n_samples: int = 32
     dropout: float = 0.1

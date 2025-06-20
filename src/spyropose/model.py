@@ -104,15 +104,13 @@ class SpyroPoseModel(pl.LightningModule):
         opt = torch.optim.AdamW(
             self.parameters(), lr=self.cfg.lr, weight_decay=self.cfg.weight_decay
         )
-
-        def lr(step, warmup_steps=1000):
-            warmup_factor = min(step, warmup_steps) / warmup_steps
-            decay_step = max(step - warmup_steps, 0) / (
-                self.trainer.estimated_stepping_batches - warmup_steps
-            )
-            return warmup_factor * (1 + np.cos(decay_step * np.pi)) / 2
-
-        sched = torch.optim.lr_scheduler.LambdaLR(opt, lr)
+        sched = torch.optim.lr_scheduler.OneCycleLR(
+            opt,
+            pct_start=0.1,
+            final_div_factor=1e2,
+            max_lr=self.cfg.lr,
+            total_steps=self.trainer.estimated_stepping_batches,  # type: ignore
+        )
         return [opt], [dict(scheduler=sched, interval="step")]
 
     def optimizer(self):

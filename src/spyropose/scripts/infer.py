@@ -27,6 +27,7 @@ def infer(
     fig_scale=3.0,
     max_dist_renders=10_000,
     dist_render_prob_target=0.95,
+    gamma=1.0,
 ):
     # load models in eval mode and freeze weights
     detector = SpyroDetector.load_eval_freeze(detector_path, device)
@@ -158,6 +159,7 @@ def infer(
             rotations_gt=world_R_objs_gt[gt_idx_guess : gt_idx_guess + 1],
             probabilities=leaf_probabilities,
             ax=fig.add_subplot(spec[1, 3:], projection="mollweide"),
+            gamma=gamma,
         )
         fig.tight_layout()
         plt.show()

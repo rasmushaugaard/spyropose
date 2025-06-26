@@ -31,8 +31,8 @@ This would use scenes with index 0 through 18 for training and scene 19 for vali
 uv run -m spyropose.scripts.train \
   --obj.dataset=DATASET \
   --obj.obj=OBJECT_ID_OR_NAME \
-  --data_train.scene_id_range=[0,19] \
-  --data_valid.scene_id_range=[19,20]
+  --data_train.scene_id_range="[0,19]" \
+  --data_valid.scene_id_range="[19,20]"
 ```
 
 ## A detector
@@ -43,8 +43,8 @@ A script to train a simple detector is included and can be trained with a simila
 uv run -m spyropose.detection.train \
   --obj.dataset=DATASET \
   --obj.obj=OBJECT_ID_OR_NAME \
-  --data_train.scene_id_range=[0,19] \
-  --data_valid.scene_id_range=[19,20]
+  --data_train.scene_id_range="[0,19]" \
+  --data_valid.scene_id_range="[19,20]"
 ```
 
 ## Inference

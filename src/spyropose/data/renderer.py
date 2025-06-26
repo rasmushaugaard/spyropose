@@ -38,7 +38,7 @@ class SimpleRenderer:
         near: float,
         far: float,
         w: int,
-        h: int = None,
+        h: int | None = None,
         device_idx=0,
         components=4,
         dtype="f4",
@@ -49,7 +49,7 @@ class SimpleRenderer:
         if h is None:
             h = w
         self.h, self.w = h, w
-        self.ctx = moderngl.create_context(standalone=True, backend="egl", device_index=device_idx)
+        self.ctx = moderngl.create_context(standalone=True, backend="egl", device_index=device_idx)  # type: ignore
         self.ctx.disable(moderngl.CULL_FACE)
         self.ctx.enable(moderngl.DEPTH_TEST)
         self.fbo = self.ctx.simple_framebuffer((w, h), components=components, dtype=dtype)
@@ -108,9 +108,9 @@ class SimpleRenderer:
             [[0, 0, 0, 1]],
         ))
         mvp = projection_matrix(K, self.w, self.h, self.near, self.far) @ mv
-        self.prog["R"].value = tuple(R.T.astype("f4").reshape(-1))
-        self.prog["mvp"].value = tuple(mvp.T.astype("f4").reshape(-1))
-        self.prog["mv"].value = tuple(mv.T.astype("f4").reshape(-1))
+        self.prog["R"].value = tuple(R.T.astype("f4").reshape(-1))  # type: ignore
+        self.prog["mvp"].value = tuple(mvp.T.astype("f4").reshape(-1))  # type: ignore
+        self.prog["mv"].value = tuple(mv.T.astype("f4").reshape(-1))  # type: ignore
 
         self.fbo.use()
         self.ctx.clear()

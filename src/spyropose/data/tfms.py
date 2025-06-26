@@ -1,30 +1,6 @@
-from typing import Union
-
 import albumentations as A
 import cv2
 import numpy as np
-import torch
-
-imagenet_stats = (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
-
-
-def normalize(img: np.ndarray):  # (h, w, 3) -> (3, h, w)
-    mu, std = imagenet_stats
-    if img.dtype == np.uint8:
-        img = np.asarray(img, np.float32) / 255.0
-    else:
-        img = np.asarray(img, np.float32)
-    img = (img - mu) / std
-    return img.transpose(2, 0, 1)
-
-
-def denormalize(img: Union[np.ndarray, torch.Tensor]):
-    mu, std = imagenet_stats
-    if isinstance(img, torch.Tensor):
-        mu, std = [
-            torch.Tensor(v).type(img.dtype).to(img.device)[:, None, None] for v in (mu, std)
-        ]
-    return img * std + mu
 
 
 class Unsharpen(A.ImageOnlyTransform):

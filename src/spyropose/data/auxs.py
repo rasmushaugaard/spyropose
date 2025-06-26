@@ -101,12 +101,14 @@ def calculate_crop_matrix(
         np.linalg.inv(M_crop) @ np.array(((mi, mi, 1), (mi, ma, 1), (ma, ma, 1), (ma, mi, 1))).T
     )
     corners = corners[:2] / corners[2:]
-    left, top = np.floor(corners.min(axis=1)).astype(int) - 1
-    right, bottom = np.ceil(corners.max(axis=1)).astype(int) + 1
+    left, top = np.floor(corners.min(axis=1)).astype(int)
+    right, bottom = np.ceil(corners.max(axis=1)).astype(int)
     if h is None or w is None:
         AABB_crop = None
     else:
-        AABB_crop = max(0, left), max(0, top), min(right, w - 1), min(bottom, h - 1)
+        left, top, right, bottom = max(0, left), max(0, top), min(right, w - 1), min(bottom, h - 1)
+        left, top, right, bottom = min(w - 2, left), min(h - 2, top), max(right, 1), max(bottom, 1)
+        AABB_crop = left, top, right, bottom
 
     return dict(
         M_crop=M_crop.astype(np.float32),

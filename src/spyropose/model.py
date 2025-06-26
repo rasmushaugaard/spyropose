@@ -546,7 +546,7 @@ class SpyroPoseModel(pl.LightningModule):
             t_frame_est=cam_t_frame.reshape(3, 1),
             crop_res=crop_res,
             frame_radius=self.cfg.obj.frame.radius,
-            padding_ratio=self.cfg.obj.frame.padding_ratio,
+            padding_ratio=self.cfg.obj.crop_padding_ratio,
         )
         K_crop: np.ndarray = crop_matrices["K_crop"]
         M_crop: np.ndarray = crop_matrices["M_crop"]

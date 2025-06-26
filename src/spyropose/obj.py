@@ -26,6 +26,7 @@ class SpyroObjectConfig:
         obj: str,
         frame: SpyroFrame | None = None,
         crop_res: int = 224,
+        crop_padding_ratio: float = 1.1,
         recursion_depth: int = 7,
         keypoints: int | tuple[tuple[float, float, float], ...] = 16,
     ):
@@ -33,6 +34,7 @@ class SpyroObjectConfig:
         self.obj = obj
         self.crop_res = crop_res
         self.recursion_depth = recursion_depth
+        self.crop_padding_ratio = crop_padding_ratio
 
         if frame is not None:
             self.frame = frame

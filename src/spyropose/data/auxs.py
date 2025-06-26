@@ -224,7 +224,7 @@ def get_auxs(cfg: SpyroDataConfig):
     img_aug_cfg = cfg.img_aug
     random_crop_aux = RandomRotatedMaskCrop(
         crop_res=cfg.obj.crop_res,
-        padding_ratio=cfg.obj.frame.padding_ratio,
+        padding_ratio=cfg.obj.crop_padding_ratio,
         random_crop_rotation=img_aug_cfg.enabled,
     )
 

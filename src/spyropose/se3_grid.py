@@ -199,15 +199,15 @@ class PosePyramid:
         return leaf_idxs
 
     @cached_property
-    def n_leafs_per_recursion(self):
+    def n_leaves_per_recursion(self):
         return torch.tensor([leaf_idx.shape[1] for leaf_idx in self.leaf_idxs], device=self.device)
 
     @cached_property
-    def n_leafs(self):
-        return self.n_leafs_per_recursion.sum()
+    def n_leaves(self):
+        return self.n_leaves_per_recursion.sum()
 
-    def _get_leafs(self, xl: list[Tensor]):
-        """(b, n_leafs)"""
+    def _get_leaves(self, xl: list[Tensor]):
+        """(b, n_leaves)"""
         return torch.cat(
             [
                 x[torch.arange(self.b, device=self.device).view(self.b, 1), leaf_idx]
@@ -218,30 +218,30 @@ class PosePyramid:
 
     @cached_property
     def leaf_rot_idxs(self):
-        """(b, n_leafs)"""
-        return self._get_leafs(self.rot_idxs)
+        """(b, n_leaves)"""
+        return self._get_leaves(self.rot_idxs)
 
     @cached_property
     def leaf_pos_idxs(self):
-        """(b, n_leafs)"""
-        return self._get_leafs(self.pos_idxs)
+        """(b, n_leaves)"""
+        return self._get_leaves(self.pos_idxs)
 
     @cached_property
     def leaf_log_probs(self):
-        """(b, n_leafs)"""
-        return self._get_leafs(self.log_probs)
+        """(b, n_leaves)"""
+        return self._get_leaves(self.log_probs)
 
     @cached_property
     def leaf_probs(self):
-        """(b, n_leafs)"""
+        """(b, n_leaves)"""
         return self.leaf_log_probs.exp()
 
     @cached_property
     def leaf_recursion_level(self):
-        """(n_leafs,)"""
+        """(n_leaves,)"""
         return torch.repeat_interleave(
             torch.arange(self.recursion_depth, device=self.device),
-            self.n_leafs_per_recursion,
+            self.n_leaves_per_recursion,
         )
 
     @cached_property
@@ -255,12 +255,12 @@ class PosePyramid:
 
     @cached_property
     def leaf_log_volume(self):
-        """(b, n_leafs)"""
+        """(b, n_leaves)"""
         return self.log_bounded_se3_volume - log_bin_count(self.leaf_recursion_level)
 
     @cached_property
     def leaf_log_density(self):
-        """(b, n_leafs)"""
+        """(b, n_leaves)"""
         return self.leaf_log_probs - self.leaf_log_volume
 
     @cached_property
@@ -283,27 +283,27 @@ class PosePyramid:
 
     @cached_property
     def leaf_world_t_frame(self):
-        """(b, n_leafs, 3, 1)"""
-        return self._get_leafs(self._world_t_frame)
+        """(b, n_leaves, 3, 1)"""
+        return self._get_leaves(self._world_t_frame)
 
     @cached_property
     def leaf_world_R_frame(self):
-        """(b, n_leafs, 3, 3)"""
-        return self._get_leafs(self._world_R_frame)
+        """(b, n_leaves, 3, 3)"""
+        return self._get_leaves(self._world_R_frame)
 
     @cached_property
     def leaf_world_t_obj(self):
-        """(b, n_leafs, 3, 1)"""
+        """(b, n_leaves, 3, 1)"""
         frame_t_obj = -self.obj_t_frame  # obj_R_frame = I
         return self.leaf_world_t_frame + self.leaf_world_R_frame @ frame_t_obj
 
     @property
     def leaf_world_R_obj(self):
-        """(b, n_leafs, 3, 3)"""
+        """(b, n_leaves, 3, 3)"""
         return self.leaf_world_R_frame  # obj_R_frame = I
 
     @cached_property
-    def expected_world_R_frame(self):
+    def expected_world_R_frame(self) -> Tensor:
         """(b, 3, 3)"""
         x = self.leaf_world_R_frame * einops.rearrange(self.leaf_probs, "b n -> b n 1 1")
         x = x.sum(dim=1)  # (b, 3, 3)
@@ -315,6 +315,7 @@ class PosePyramid:
 
     @property
     def expected_world_R_obj(self):
+        """(b, 3, 3)"""
         return self.expected_world_R_frame
 
     @cached_property
@@ -329,3 +330,59 @@ class PosePyramid:
         """(b, 3, 1)"""
         frame_t_obj = -self.obj_t_frame  # obj_R_frame = I
         return self.expected_world_t_frame + self.expected_world_R_frame @ frame_t_obj
+
+    @cached_property
+    def _expected_frame_angle_leaf_frames(self):
+        """(b, n_leaves)"""
+        expected_frame_R_world = self.expected_world_R_frame.mT  # (b, 3, 3)
+        expected_frame_R_leaf_frames = (
+            expected_frame_R_world[:, None] @ self.leaf_world_R_frame
+        )  # (b, 1, 3, 3) @ (b, n_leaf, 3, 3) = (b, n_leaf, 3, 3)
+        # https://en.wikipedia.org/wiki/Rotation_matrix#Determining_the_angle
+        traces = expected_frame_R_leaf_frames.diagonal(dim1=-2, dim2=-1).sum(dim=-1)  # (b, n_leaf)
+        angles = torch.arccos(((traces - 1) / 2).clamp_(-1, 1))  # (b, n_leaves)
+        return angles
+
+    @cached_property
+    def angle_variance(self):
+        """(b,)"""
+        angles_sqr = self._expected_frame_angle_leaf_frames**2
+        expected_squared_angles = (angles_sqr * self.leaf_probs).sum(dim=1)
+        return expected_squared_angles
+
+    @cached_property
+    def _expected_R_angles(self):
+        """2 x (b, n_leaves)"""
+        angles, indices = torch.sort(self._expected_frame_angle_leaf_frames)  # (b, n_leaves)
+        sorted_probs = self.leaf_probs.gather(dim=1, index=indices)  # (b, n_leaves)
+        probs_cumsum = sorted_probs.cumsum(dim=1)  # (b, n_leaves)
+        return angles, probs_cumsum
+
+    def expected_R_confidence_interval(self, confidence_levels: Tensor):
+        """Returns confidence levels in radians wrt. expected rotation. Shape (b, n_levels).
+        Args:
+            confidence_level: (b, n_levels)
+        """
+        angles, probs_cumsum = self._expected_R_angles
+        indices = torch.searchsorted(probs_cumsum, confidence_levels, right=True)  # (b, n_levels)
+        return angles.gather(1, indices)  # (b, n_levels)
+
+    @cached_property
+    def _expected_t_dists(self):
+        """2 x (b, n_leaves)"""
+        dists = torch.norm(
+            self.expected_world_t_frame[:, None] - self.leaf_world_t_frame, dim=2
+        ).squeeze(-1)  # (b, n_leaves)
+        dists, indices = torch.sort(dists)
+        sorted_probs = self.leaf_probs.gather(dim=1, index=indices)  # (b, n_leaves)
+        probs_cumsum = sorted_probs.cumsum(dim=1)  # (b, n_leaves)
+        return dists, probs_cumsum
+
+    def expected_t_confidence_interval(self, confidence_levels: Tensor):
+        """Returns confidence levels in radians wrt. expected rotation. Shape (b, n_levels).
+        Args:
+            confidence_level: (b, n_levels)
+        """
+        dists, probs_cumsum = self._expected_t_dists
+        indices = torch.searchsorted(probs_cumsum, confidence_levels, right=True)  # (b, n_levels)
+        return dists.gather(1, indices)  # (b, n_levels)

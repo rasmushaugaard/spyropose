@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import cv2
 import einops
@@ -209,6 +209,7 @@ class SpyroPoseModel(pl.LightningModule):
         world_R_cam: Tensor | None = None,
         world_t_cam: Tensor | None = None,
         pose_bs: int | None = None,
+        view_ll_reduction: float | Literal["sum", "mean"] = "sum",
     ):
         """Can be used for both single and multi-view inference"""
         device = self.device
@@ -234,6 +235,14 @@ class SpyroPoseModel(pl.LightningModule):
         assert world_R_cam.shape == (b, c, 3, 3), world_R_cam.shape
         assert world_t_cam.shape == (b, c, 3, 1), world_t_cam.shape
         bc = b * c
+
+        if isinstance(view_ll_reduction, str):
+            if view_ll_reduction == "mean":
+                view_ll_reduction = c
+            elif view_ll_reduction == "sum":
+                view_ll_reduction = 1.0
+            else:
+                raise ValueError()
 
         # to device. could potentially be sped up by tranfering async
         # see https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html
@@ -308,7 +317,7 @@ class SpyroPoseModel(pl.LightningModule):
             # evaluate expanded poses
             log_prob = (
                 torch.log_softmax(
-                    lgts.mean(dim=1),  # TODO: sum with temp param instead
+                    lgts.sum(dim=1) / view_ll_reduction,
                     dim=1,
                 )
                 + log_sum_prob_expanded

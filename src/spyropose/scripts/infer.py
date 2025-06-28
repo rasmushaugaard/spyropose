@@ -28,6 +28,7 @@ def infer(
     max_dist_renders=10_000,
     dist_render_prob_target=0.95,
     gamma=1.0,
+    start_detection_idx: int = 0,
 ):
     # load models in eval mode and freeze weights
     detector = SpyroDetector.load_eval_freeze(detector_path, device)
@@ -68,7 +69,10 @@ def infer(
     )
 
     # run spyropose on crops
-    for detection_idx in torch.argsort(detections.scores, descending=True):
+    for i, detection_idx in list(enumerate(torch.argsort(detections.scores, descending=True)))[
+        start_detection_idx:
+    ]:
+        print(f"detection #{i}")
         box = detections.boxes[detection_idx].cpu().numpy()
         cam_t_frame = detector.estimate_translation_from_bbox(box=box, K=K)
         crop, K_crop = spyro.crop_from_translation_est(img=img, K=K, cam_t_frame=cam_t_frame)
@@ -84,6 +88,14 @@ def infer(
         gt_idx_guess = np.argmin(gt_dists)
 
         # visualization
+        def overlay(render, alpha=0.5, color=(0, 0, 1)):
+            rgb, alpha = render[..., :3] * color, render[..., 3:] * alpha
+            return rgb * alpha + crop / 255.0 * (1 - alpha)
+
+        def draw_frame_inplace(img, R, t):
+            cv2.drawFrameAxes(img, K_crop, None, cv2.Rodrigues(R)[0], t, obj.frame.radius)
+            np.clip(img, 0, 1, out=img)
+
         leaf_world_R_obj = spyro_out.leaf_world_R_obj[0].cpu().numpy()
         leaf_world_t_obj = spyro_out.leaf_world_t_obj[0].cpu().numpy()
         leaf_probabilities = spyro_out.leaf_probs[0].cpu().numpy()
@@ -106,16 +118,29 @@ def infer(
         max_ll_left_idx = np.argmax(leaf_log_densities)
         max_ll_world_R_obj = leaf_world_R_obj[max_ll_left_idx]
         max_ll_world_t_obj = leaf_world_t_obj[max_ll_left_idx]
-        render_max_ll = renderer.render(K=K_crop, R=max_ll_world_R_obj, t=max_ll_world_t_obj)
+        render_max_ll = overlay(
+            renderer.render(K=K_crop, R=max_ll_world_R_obj, t=max_ll_world_t_obj)
+        )
+        draw_frame_inplace(render_max_ll, max_ll_world_R_obj, max_ll_world_t_obj)
 
         # expected
         expected_world_R_obj = spyro_out.expected_world_R_obj[0].cpu().numpy()
         expected_world_t_obj = spyro_out.expected_world_t_obj[0].cpu().numpy()
-        render_expected = renderer.render(K=K_crop, R=expected_world_R_obj, t=expected_world_t_obj)
+        render_expected = overlay(
+            renderer.render(K=K_crop, R=expected_world_R_obj, t=expected_world_t_obj)
+        )
+        draw_frame_inplace(render_expected, expected_world_R_obj, expected_world_t_obj)
 
-        def overlay(render, alpha=0.5, color=(0, 0, 1)):
-            rgb, alpha = render[..., :3] * color, render[..., 3:] * alpha
-            return rgb * alpha + crop / 255.0 * (1 - alpha)
+        print(
+            f"sqrt(angle variance) = {np.rad2deg(spyro_out.angle_variance[0].sqrt().item()):.2f} deg"
+        )
+        confidence_levels = torch.tensor([0.95, 0.99], device=device)
+        R_conf_intervals = spyro_out.expected_R_confidence_interval(confidence_levels[None])[0]
+        t_conf_intervals = spyro_out.expected_t_confidence_interval(confidence_levels[None])[0]
+        for cl, R_ci, t_ci in zip(confidence_levels, R_conf_intervals, t_conf_intervals):
+            print(
+                f"Confidence interval {cl.item():.2f}: {np.rad2deg(R_ci.item()):.2f} deg, {t_ci.item():.1f} mm"
+            )
 
         n_rows, n_cols = 2, 3 + 4
         fig = plt.figure(figsize=(n_cols * fig_scale, n_rows * fig_scale))
@@ -134,23 +159,20 @@ def infer(
         ax.set_axis_off()
         # - max ll
         ax = fig.add_subplot(spec[0, 4])
-        ax.imshow(overlay(render_max_ll))
+        ax.imshow(render_max_ll)
         ax.set_title("argmax_x p(x)")
         ax.set_axis_off()
         # - expected
         ax = fig.add_subplot(spec[0, 5])
-        ax.imshow(overlay(render_expected))
+        ax.imshow(render_expected)
         ax.set_title("E_p x")
         ax.set_axis_off()
         # maybe ground truth
         ax = fig.add_subplot(spec[0, 6])
-        ax.imshow(
-            overlay(
-                renderer.render(
-                    K=K_crop, R=world_R_objs_gt[gt_idx_guess], t=world_t_objs_gt[gt_idx_guess]
-                )
-            )
-        )
+        R_guess, t_guess = world_R_objs_gt[gt_idx_guess], world_t_objs_gt[gt_idx_guess]
+        gt_render = overlay(renderer.render(K=K_crop, R=R_guess, t=t_guess))
+        draw_frame_inplace(gt_render, R_guess, t_guess)
+        ax.imshow(gt_render)
         ax.set_title("maybe ground truth")
         ax.set_axis_off()
         # - so3 dist

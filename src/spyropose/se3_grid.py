@@ -309,7 +309,7 @@ class PosePyramid:
         x = x.sum(dim=1)  # (b, 3, 3)
         # orthogonal procrustes
         u, _, vh = torch.linalg.svd(x)
-        s = torch.eye(3, device=self.device).unsqueeze(0).expand(self.b, 3, 3)
+        s = torch.eye(3, device=self.device).unsqueeze(0).expand(self.b, 3, 3).clone()
         s[:, 2, 2] = torch.sign(torch.linalg.det(u @ vh))
         return u @ s @ vh
 
